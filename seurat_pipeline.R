@@ -1,16 +1,16 @@
 # Seurat pipeline
-# Usage: time ./seurat_pipeline.R --dir_project_10x /nfsdata//nfsdata/data/sc-10x/data-runs/180604-perslab-germfree/ --dir_out /projects/jonatan/tmp-germfree --prefix_data "perslab_scnuclei_pilot" --prefix_run "seurat_1" --merge_IDs "c('all')" --n_cores 10  --res_to_calc "c(0.6,0.8,1.0,1.2,1.5,2.0)" --feats_to_plot "c('Ghrl','Lep')"
+# Usage: 
+# export R_MAX_NUM_DLLS=999 # optional
+# time Rscript /projects/jonatan/tools/seurat-src/seurat_pipeline.R --dirs_project_10x 'c("/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/247L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/249L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/255L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/260L-5000_cells/")' --dir_out /projects/jonatan/tmp-liver/ --flag_datatype sc --flag_organism hsapiens --prefix_data liver  --prefix_run seurat_3_align  --use_filtered_gene_bc_matrices F --nUMI_min 500  --nUMI_max 15000 --nGene_min 100 --nGene_max 10000 --percent.mito_max Inf --percent.ribo_max Inf --rm_sc_multiplets T --n_comp 75 --align_group_IDs "c('all')" --feats_to_plot "c('percent.mito','percent.ribo','nUMI','nGene','MALAT1')"
+# time Rscript /projects/jonatan/tools/seurat-src/seurat_pipeline.R --dirs_project_10x 'c("/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/")' --dir_out /projects/jonatan/tmp-liver/ --flag_organism hsapiens --prefix_data liver  --prefix_run seurat_3_merge  --use_filtered_gene_bc_matrices F --nUMI_min 500  --nUMI_max 15000 --nGene_min 100 --nGene_max 10000 --percent.mito_max Inf --percent.ribo_max Inf --rm_sc_multiplets T --n_comp 75 --merge_specify "list(sc=c('245L',247L','249L'),sn=c('255L',259L','260L'))" --feats_to_plot "c('percent.mito','percent.ribo','nUMI','nGene','MALAT1')" 
 
 # TODO
-# in RunCCA, group.by some metadata given as argument? e.g. protocol?
-# check Dylan and Mette's CCA scripts
-# add doubletFinder
-# add geneplots (nUMI, percent.mito, percent.ribo)
-# check timshel's pipeline
-# add UMAP
-# in FindConservedMarkers,  do we need # grouping.var = align_ID ?
-# Identify celltypes
+# Potentially: identify celltypes using scmap or other tool
 
+# Sources
+## Alignment tutorial: PBMCs - 10x and seqwell: https://satijalab.org/seurat/Seurat_AlignmentTutorial.html
+## Alignment tutorial: stimulated vs. control PBMCs: https://satijalab.org/seurat/immune_alignment.html
+## Aligning multiple dataset workflow: https://www.dropbox.com/s/aji4ielg8gc70vj/multiple_pancreas_workflow.R?dl=1
 ######################################################################
 ########################### OptParse #################################
 ######################################################################
@@ -18,47 +18,87 @@
 suppressPackageStartupMessages(library(optparse))
 
 option_list <- list(
-  make_option("--dir_project_10x", type="character", default = NULL,
-              help = "Corresponds to cellranger's $DATARUNS_DIR/$PROJECT_ID. Contains $SAMPLE_NAME subfolders with /outs/filtered_gene_bc_matrices/mm10 subdirs. [default %default]"),  
+  make_option("--dirs_project_10x", type="character", default = NULL,
+              help = "Corresponds to cellranger's $DATARUNS_DIR/$PROJECT_ID or e.g. $SAMPLE_NAME subfolders with /outs/filtered_gene_bc_matrices/mm10 subdirs. Takes a quoted vector, [default %default]"),  
   make_option("--paths_data", type="character", default = NULL,
               help = "Path(s) to single counts data matrix stored in standard (gz compressed) delimited text format or loom. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g. ''c('<path1>','<path2>')'',  [default %default]"),  
   make_option("--dir_out", type="character",
               help = "Project directory to which to write files. Should include subdirectories /tables, /RObjects, /plots, /log"),  
   make_option("--flag_datatype", type="character", default = "sc",
               help = "Accepts arguments sc or bulk, [default %default]"), 
+  make_option("--flag_organism", type="character", default = "mmusculus",
+              help = "One of mmusculus or hsapiens, [default %default]"), 
   make_option("--prefix_data", type="character", default = "Seurat_out",
               help = "Dataset prefix for output files, [default %default]"), 
   make_option("--prefix_run", type="character", default=substr(gsub("-","",as.character(Sys.Date())),3,1000),
               help = "Run prefix for output files, [default %default]"), 
   make_option("--paths_metadata", type="character", default = NULL,
               help = "Path(s) to metadata file(s) in one of the standard (compressed) character separated formats. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g. ''c('<path1>','<path2>')''. If not given, takes any metadata stored within the path_data object(s). [default %default]"),  
-  make_option("--merge_IDs", type="character", default = NULL,
-              help = "Merge samples by some identifiers? Precedes any sample alignment. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g. ''c('GF','CR')''. The group identifier must be part of the names of the sample sub-directories. Use 'c('all')' to merge all samples, [default %default]"), 
-  make_option("--align_IDs", type="character", default = NULL,
+  make_option("--n_cells_loaded", type="character", default = 'c(9000)',
+              help = "Approximately how many cells loaded in each sample? Takes a vector, in quotes, with one value per group of samples or a single common value. Used by doubletFinder to estimate doublet rate, [default %default]"),
+  make_option("--n_cells_recovered", type="character", default = NULL,
+              help = "Approximately how many cells recovered per sample? Takes a vector, in quotes, with one value per group of samples or a single common value. Used to cut off cells in QC. If left as NULL, a sensible value is computed on basis on n_cells_loaded [default %default]"),
+  make_option("--use_filtered_gene_bc_matrices", type="logical", default = T,
+              help = "Use the filtered_gene_bc_matrices generated by 10x Genomics cell ranger? If F, uses the raw, [default %default]"),
+  make_option("--nGene_min", type="integer", default = 100L,
+              help = "Minimum number of genes needed to keep a cell [default %default]"),
+  make_option("--nGene_max", type="integer", default = 5000L,
+              help = "Max number of genes tolerated in a cell [default %default]"),
+  make_option("--nUMI_min", type="integer", default = 500L,
+              help = "Minimum number of Unique Molecular Identifiers needed to keep a cell [default %default]"),
+  make_option("--nUMI_max", type="integer", default = 10000L,
+              help = "Max number of Unique Molecular Identifiers tolerated in a cell [default %default]"),
+  make_option("--percent.mito_max", type="numeric", default = 0.15,
+              help = "Maximum proportion of mitochrondrial genes tolerated in a cell, [default %default]"),
+  make_option("--percent.ribo_max", type="numeric", default = 0.15,
+              help = "Maximum proportion of ribosomal genes tolerated in a cell, [default %default]"),
+  make_option("--rm_sc_multiplets", type="logical", default = T,
+              help = "Use DoubletFinder to remove suspected multiplets? [default %default]"),
+  make_option("--vars.to.regress", type="character", default='c("nUMI", "percent.mito", "percent.ribo")',
+              help="Provide arguments to Seurat's ScaleData function in the form of a vector in quotes, defaults to ''c('nUMI', 'percent.mito', 'percent.ribo')'' [default %default]"),
+  make_option("--merge_group_IDs", type="character", default = NULL,
+              help = "Merge samples by some group identifiers? Precedes any sample alignment. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g. ''c('GF','CR')'' to merge all expression data containing the string 'GF' or 'CR', respectively. The group identifier must be part of the names of the sample sub-directories. Use 'c('all')' to merge all samples, [default %default]"), 
+  make_option("--merge_specify", type="character", default = NULL,
+              help = "Merge samples by individual sample identifiers? Precedes any sample alignment. Similar to merge_group_IDs, but specifying samples in each group by matching strings. Takes a list of vectors of sample identifiers, named by desired group_IDs. The whole list should be in quotes (single if using double inside, and vice versa). E.g. ''list(colon=c('1_GF', '2_CR'), ileum=c('3_GF', '4_CR'))'', [default %default]"), 
+  make_option("--align_group_IDs", type="character", default = NULL,
               help = "Align samples by some identifiers? Succeeds any sample merge. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g.''c('tissue.1','tissue.2')''. Use ''c('all')'' to align all samples, [default %default]"), 
-  make_option("--n_cores", type="integer", default = 15L,
-              help = "Script uses the parallel package using FORK cluster; how many cores? [default %default]"),
-  make_option("--n_comp", type="integer", default = 75L,
-              help = "How many principal and canonical components? [default %default]"),
-  make_option("--res_primary", type="double", default = 0.8,
-              help = "resolution parameter to pass to Seurat::FindClusters. Used for finding gene markers and in plots. [default %default]"),
+  make_option("--align_specify", type="character", default = NULL,
+              help = "align samples by individual sample identifiers? Succeeds any sample merge. Similar to align_group_IDs, but specifying samples in each group by matching strings. Takes a list of vectors of sample identifiers, named by desired group identifier. The whole list should be in quotes (single if using double inside, and vice versa). E.g. ''list(colon=c('1_GF', '2_CR'), ileum=c('3_GF', '4_CR'))'', [default %default]"), 
+  make_option("--n_PC", type="integer", default = 50L,
+              help = "How many principal components? The script uses Jackstraw to select significant PCs [default %default]"),
+  make_option("--n_CC", type="integer", default = 15L,
+              help = "How many canonical components to use for alignment? [default %default]"),
+  make_option("--res_primary", type="double", default = NULL,
+              help = "resolution parameter to pass to Seurat::FindClusters. The usual default is 0.8. Leave NULL to skip clustering [default %default]"),
   make_option("--res_to_calc", type="character", default = NULL,
               help = "multiple resolution parameters to pass to Seurat::FindClusters. Must include res_primary. Format as a quoted character with a vector of values, without whitespace. [default %default]"),
-  make_option("--feats_to_plot", type="character", default = NULL,
+  make_option("--feats_to_plot", type="character", default = 'c("nUMI","nGene","percent.mito","percent.ribo","Malat1")',
               help = "Features to plot. Format as a quoted character with a vector of values, without whitespace. [default %default]"),
   make_option("--feats_plot_separate", type="character", default = T,
-              help = "Plot features separately or in one plot? If FALSE, only the first two features will be plotted [default %default]")
+              help = "Plot features separately or in one plot? If FALSE, only the first two features will be plotted [default %default]"),
+  # make_option("--n_cores", type="integer", default = 5L,
+  #             help = "Script uses the parallel package using FORK cluster; how many cores? [default %default]"),
+  make_option("--RAM_Gb_max", type="integer", default=200,
+              help = "Upper limit on Gb RAM available. Taken into account when setting up parallel processes. [default %default]")
 )
+
+######################################################################
+######################### UTILITY FUNCTIONS ##########################
+######################################################################
+
+source(file="/projects/jonatan/tools/functions-src/utility_functions.R")
 
 ######################################################################
 ########################### PACKAGES #################################
 ######################################################################
 
-suppressPackageStartupMessages(library(Matrix))
-suppressPackageStartupMessages(library(Seurat))
-suppressPackageStartupMessages(library(dplyr))
-suppressPackageStartupMessages(library(parallel))
-suppressPackageStartupMessages(library(loomR))
+ipak(c("optparse", "Matrix", "Seurat", "ggplot2", "scales", "dplyr", "parallel", "reshape", "reshape2"))#, "pSI", "loomR", "doubletFinder")
+
+######################################################################
+########################### SC FUNCTIONS #############################
+######################################################################
+
+source(file="/projects/jonatan/tools/functions-src/functions_sc.R")
 
 ######################################################################
 ########################### GET OPTIONS ##############################
@@ -66,43 +106,37 @@ suppressPackageStartupMessages(library(loomR))
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-dir_project_10x <- opt$dir_project_10x
+dirs_project_10x <- opt$dirs_project_10x ; if (!is.null(dirs_project_10x)) dirs_project_10x <- eval(parse(text=dirs_project_10x))
 paths_data <- opt$paths_data ; if (!is.null(paths_data)) paths_data <- eval(parse(text=paths_data))
 dir_out <- opt$dir_out
 flag_datatype <- opt$flag_datatype
+flag_organism <- opt$flag_organism
 prefix_data <- opt$prefix_data
 prefix_run <- opt$prefix_run
 paths_metadata <- opt$paths_metadata ; if (!is.null(paths_metadata)) paths_metadata <- eval(parse(text=paths_metadata))
-merge_IDs <- opt$merge_IDs ; if (!is.null(merge_IDs)) merge_IDs <- eval(parse(text=merge_IDs))
-align_IDs <- opt$align_IDs ; if (!is.null(align_IDs)) align_IDs <- eval(parse(text=align_IDs))
-n_cores <- opt$n_cores
-n_comp <- opt$n_comp
+n_cells_loaded <- opt$n_cells_loaded ; if (!is.null(n_cells_loaded)) n_cells_loaded <- eval(parse(text=n_cells_loaded))
+n_cells_recovered <- opt$n_cells_recovered ; if (!is.null(n_cells_recovered)) n_cells_recovered <- eval(parse(text=n_cells_recovered))
+use_filtered_gene_bc_matrices = opt$use_filtered_gene_bc_matrices 
+nGene_min = opt$nGene_min
+nGene_max = opt$nGene_max
+nUMI_min = opt$nUMI_min
+nUMI_max = opt$nUMI_max
+percent.mito_max = opt$percent.mito_max
+percent.ribo_max = opt$percent.ribo_max
+rm_sc_multiplets = opt$rm_sc_multiplets
+vars.to.regress <- opt$vars.to.regress ; if (!is.null(vars.to.regress)) vars.to.regress <- eval(parse(text=vars.to.regress))
+merge_group_IDs <- opt$merge_group_IDs ; if (!is.null(merge_group_IDs)) merge_group_IDs <- eval(parse(text=merge_group_IDs))
+merge_specify <- opt$merge_specify ; if (!is.null(merge_specify)) merge_specify <- eval(parse(text=merge_specify))
+align_group_IDs <- opt$align_group_IDs ; if (!is.null(align_group_IDs)) align_group_IDs <- eval(parse(text=align_group_IDs))
+align_specify <- opt$align_specify ; if (!is.null(align_specify)) align_specify <- eval(parse(text=align_specify))
+n_PC <- opt$n_PC
+n_CC <- opt$n_CC
 res_primary <- opt$res_primary
 res_to_calc <- opt$res_to_calc ; if (!is.null(res_to_calc)) res_to_calc <- eval(parse(text = res_to_calc))
 feats_to_plot <- opt$feats_to_plot ; if (!is.null(feats_to_plot)) feats_to_plot <- eval(parse(text = feats_to_plot))
 feats_plot_separate <- opt$feats_plot_separate
-
-######################################################################
-########################### SET OPTIONS (DEV) ########################
-######################################################################
-
-if (FALSE) {
-  dir_project_10x <- "/nfsdata/data/sc-10x/data-runs/180214-perslab-hyp_nuclei_optimization/"
-  paths_data <- NULL 
-  dir_out <- "/projects/jonatan/2018_Th_neurons/"
-  flag_datatype <- "sc"
-  prefix_data <- "perslab_hyp_nuclei"
-  prefix_run <- "Th"
-  paths_metadata <- NULL
-  merge_IDs <- NULL 
-  align_IDs <- "hyp_nucl"
-  n_cores <- 20
-  n_comp <- 75
-  res_primary <- 0.8 # the primary resolution - will be used for cluster marker identification.
-  res_to_calc <- c(0.4, 0.6, 0.8, 1.2, 1.6, 2, 4, 10) # Alternative resolutions to calculate for FindClusters. OBS: res_primary must be included in res2calculate
-  feats_to_plot <- c("Th","Ghrl","Lep")
-  feats_plot_separate <- T
-}
+#n_cores <- opt$n_cores
+RAM_Gb_max <- opt$RAM_Gb_max
 
 ######################################################################
 ########################### SET OPTIONS ##############################
@@ -139,30 +173,6 @@ if (!file.exists(dir_log)) dir.create(dir_log)
 
 dir_scratch = "/scratch/tmp-seurat/"
 
-LocationOfThisScript = function() # Function LocationOfThisScript returns the location of this .R script (may be needed to source other files in same dir)
-{
-  this.file = NULL
-  # This file may be 'sourced'
-  for (i in -(1:sys.nframe())) {
-    if (identical(sys.function(i), base::source)) this.file = (normalizePath(sys.frame(i)$ofile))
-  }
-  
-  if (!is.null(this.file)) return(dirname(this.file))
-  
-  # But it may also be called from the command line
-  cmd.args = commandArgs(trailingOnly = FALSE)
-  cmd.args.trailing = commandArgs(trailingOnly = TRUE)
-  cmd.args = cmd.args[seq.int(from=1, length.out=length(cmd.args) - length(cmd.args.trailing))]
-  res = gsub("^(?:--file=(.*)|.*)$", "\\1", cmd.args)
-  
-  # If multiple --file arguments are given, R uses the last one
-  res = tail(res[res != ""], 1)
-  if (0 < length(res)) return(dirname(res))
-  
-  # Both are not the case. Maybe we are in an R GUI?
-  return(NULL)
-}
-
 dir_current = paste0(LocationOfThisScript(), "/")
 
 flag_date = substr(gsub("-","",as.character(Sys.Date())),3,1000)
@@ -171,361 +181,575 @@ flag_date = substr(gsub("-","",as.character(Sys.Date())),3,1000)
 ########################### VERIFY INPUT #############################
 ######################################################################
 
-if (!xor(is.null(dir_project_10x), is.null(paths_data))) stop("Provide dir_project_10x or path_data")
-
-######################################################################
-######################## DEFINE FUNCTIONS ############################
-######################################################################
-
-load_obj <- function(f) {
-  # Utility function for loading an object stored in any of 
-  # .RData, .RDS, .loom, .csv, .txt, .tab, .delim
-  # File may be gzip compressed 
-  
-  compressed = F
-  
-  if (grepl(pattern = "\\.gz|\\.gzip", x=f))  {
-    compressed <- T
-    f = paste0("gzfile('",f,"')")
-  }
-  
-  if (grepl(pattern = "\\.RDS|\\.rds", x = f)) {
-    readRDS(file=if(compressed) eval(parse(text=f)) else f)
-  } else if (grepl(pattern="\\.RData|\\.Rdata", x=f)) { 
-    env <- new.env()
-    nm <- load(f, env)[1]
-    env[[nm]]
-  } else if (grepl(pattern="\\.loom", x=f)) {
-    connect(filename=f, mode = "r+")
-  } else if (grepl(pattern = "\\.csv", x=f)) {
-    read.csv(file=if(compressed) eval(parse(text=f)) else f, stringsAsFactors = F, quote="", header=T)
-  } else if (grepl(pattern = "\\.tab", x=f)) {
-    read.table(file=if(compressed) eval(parse(text=f)) else f, sep="\t", stringsAsFactors = F, quote="", header=T) 
-  } else if (grepl(pattern = "\\.txt", x=f)) {
-    read.delim(file=if(compressed) eval(parse(text=f)) else f, stringsAsFactors = F, quote="", header=T)
-  }
-}
-
+if (!xor(is.null(dirs_project_10x), is.null(paths_data))) stop("Provide dirs_project_10x or path_data arg")
+if (!is.null(merge_group_IDs) & !is.null(merge_specify)) stop("To merge datasets, pass merge_group_IDs or merge_specify but not both")
+if (!is.null(align_group_IDs) & !is.null(align_specify)) stop("To align datasets, pass merge_group_IDs or merge_specify but not both")
+if (!flag_organism %in% c("mmusculus", "hsapiens")) stop("flag_organism must be set to mmusculus or hsapiens")
 
 ######################################################################
 ############# LOAD 10x DATA AND CREATE SEURAT OBJECT #################
 ######################################################################
 
-if (!is.null(dir_project_10x)) {
-  dirs_sample <- dir(path = dir_project_10x, full.names = T, recursive = T, no.. = T, include.dirs = T)
-  dirs_sample <- dirs_sample[grep(pattern = "/outs/filtered_gene_bc_matrices/mm10$", x = dirs_sample)]
+if (!is.null(dirs_project_10x)) {
+  
+  ref_transcript_cell <- if (flag_organism == "mmusculus") "mm10" else if (flag_organism=="hsapiens") "hg19"
+  ref_transcript_nuclei <- if (flag_organism == "mmusculus") "mm10-1\\.2\\.0_premrna" else if (flag_organism=="hsapiens") "GRCh38" 
+
+  fun <- function(dir_project_10x) {
+    dir(path = dir_project_10x, full.names = T, recursive = T, include.dirs = T) %>% unlist(x = ., use.names = T)
+  }
+  args <- list("X" = dirs_project_10x)
+  dirs_all <- safeParallel(fun=fun, args=args)
+  
+  # For some reason, giving the pattern argument to dir() returns nothing
+  pattern = if (use_filtered_gene_bc_matrices) { 
+    paste0(".*outs/filtered_gene_bc_matrices/", ref_transcript_cell, "$|.*outs/filtered_gene_bc_matrices/", ref_transcript_nuclei, "$")
+  } else { 
+    paste0(".*outs/raw_gene_bc_matrices/", ref_transcript_cell, "$|.*outs/raw_gene_bc_matrices/", ref_transcript_nuclei, "$")
+  }
+  
+  dirs_all <- unlist(dirs_all, use.names = F)
+  dirs_sample <- grep(pattern = pattern, x = dirs_all, value=T)
   dirs_sample <- paste0(dirs_sample, "/")
   
-  sample_IDs <- gsub("/nfsdata/data/sc-10x/data-runs/|-5000_cells/outs/filtered_gene_bc_matrices/mm10/", "", dirs_sample)
-  sample_IDs <- gsub(".*/", "", sample_IDs)
+  # strip down the directory strings to get sample_IDs
+  sample_IDs <- gsub(paste0("/scratch|/nfsdata|/data|/sc-10x|/data-runs|-\\d{4}_cells/|outs|/raw_gene_bc_matrices|/filtered_gene_bc_matrices|/", ref_transcript_cell ,"/|", ref_transcript_nuclei ,"/"), "", dirs_sample)
+  sample_IDs <- gsub("^/[^/]*", "", sample_IDs)
+  sample_IDs <- gsub("/", "", sample_IDs)
+  
+  rm(dirs_all)
   
 } else {
   dirs_sample <- paths_data 
-  sample_IDs <- gsub(".*/|\\.RData|\\.RDS|\\.loom|\\.csv|\\.tab|\\.txt", "", dirs_sample)
+  sample_IDs <- gsub(".*/|\\.RData|\\.rda|\\.RDS|\\.loom|\\.csv|\\.tab|\\.txt", "", dirs_sample, ignore.case = T)
 }
 
-cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_load_raw_data.txt"))
+if (is.null(n_cells_recovered)) {
+  train_cells_loaded <- c(870, 1700, 3500, 5300, 7000, 8700, 10500, 12200, 14000, 15700, 17400)
+  train_cells_recovered <- c(500,seq(from=1000,to=10000, by=1000))
+  n_cells_recovered_lm <- lm(train_cells_recovered~train_cells_loaded)
+  n_cells_recovered <- round(n_cells_recovered_lm$coefficients[1]+n_cells_recovered_lm$coefficients[2]*n_cells_loaded, 0) %>% na.omit %>% as.integer
+} 
 
-if (!is.null(dir_project_10x)) {
-  list_raw <- parLapplyLB(cl, dirs_sample, function(dir_sample) Seurat::Read10X(data.dir = dir_sample))
-} else { 
-  list_raw <- parLapplyLB(cl, dirs_sample, function(dir_sample) load_obj(f=dir_sample))
+# Check input param n_cells_loaded
+if (!length(n_cells_loaded) %in% c(1, length(dirs_sample))) stop("n_cells_loaded must be either a single integer or an integer per sample")
+if (!length(n_cells_recovered) %in% c(1, length(dirs_sample))) stop("n_cells_recovered must be either a single integer or an integer per sample")
+if (any(n_cells_loaded<n_cells_recovered)) stop("n_cells_recovered cannot exceed n_cells_loaded")
+
+outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_load_data_do_QC.txt")
+
+fun <- function(sample_ID, dir_sample, n_cells) {
+  
+  if (!is.null(dirs_project_10x)) { 
+    
+    data_tmp <- Seurat::Read10X(data.dir = dir_sample)
+    
+    colnames(data_tmp) <- make.unique(paste0(sample_ID, "_", colnames(data_tmp)))
+    
+    if (!use_filtered_gene_bc_matrices) {
+      # Take top n cells
+      data_tmp %>% colSums -> nUMI_sums
+      nUMI_sums %>% rank -> rank_tmp
+      which(rank_tmp >= (length(rank_tmp)-n_cells)) -> idx_cells
+      #which(rank_tmp <= (length(rank_tmp)-5000) & rank_tmp > (length(rank_tmp)-10000)) -> idx_cells
+  
+      nUMI_sums[idx_cells] %>% sort(decreasing=T) -> nUMI_sums_sort
+      
+      # Plot nUMI histogram # TODO test this
+      ggplot(data.frame(nUMI=nUMI_sums_sort, barcode=1:length(nUMI_sums_sort)), aes(barcode,nUMI)) + geom_line() + 
+        scale_x_continuous(trans='log10', limits=c(1,n_cells+n_cells%/%5), breaks = c(sapply(1:4, function(x) 10^x))) + 
+        scale_y_continuous(trans='log10', limits=c(1,nUMI_sums_sort[1]), breaks = c(sapply(1:4, function(x) 10^x))) + 
+        geom_hline(yintercept=nUMI_min) + geom_hline(yintercept=nUMI_max) + 
+        ggtitle(paste0(sample_ID, ": UMI counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
+      ggsave(filename=paste0(dir_plots, prefix_data,"_", prefix_run,"_", sample_ID,"_nUMI_vs_barcode.pdf"), w=12, h=8)
+  
+      # filter the matrix to n cells loaded
+      data_tmp <- data_tmp[, idx_cells] 
+    }
+    
+  } else {
+    
+    data_tmp <- load_obj(f=dir_sample)
+    # If seurat object take raw data
+    seurat_meta <- NULL
+    if (class(data_tmp)=="seurat") {
+      seurat_metadata <- if(is.null(dim(data_tmp@meta.data))) data_tmp@meta.data else NULL 
+      data_tmp <- data_tmp@raw.data
+      colnames(data_tmp) <- make.unique(paste0(sample_ID, "_", colnames(data_tmp)))
+    }
+    # Do not filter down to n cells loaded
+  }
+  
+  # Compute and add percent mito and percent ribo as metadata
+  mito.genes <- grepl(pattern = "^mt-", x = rownames(data_tmp), ignore.case=T)
+  ribo.genes <- grepl(pattern = "^Rp[sl][[:digit:]]", x = rownames(data_tmp), ignore.case=T)
+  colSums_tmp <- colSums(x = data_tmp)
+  
+  metadata <- data.frame(percent.mito=colSums(x = data_tmp[mito.genes,])/colSums_tmp, percent.ribo = colSums(x = data_tmp[ribo.genes,])/colSums_tmp, rownames=colnames(data_tmp))
+  # Add nUMI
+  metadata[["nUMI"]] <- colSums(data_tmp)
+  
+  # Add nGene
+  metadata[["nGene"]] <-  colSums(data_tmp>0)
+  metadata[["sample_ID"]] <-  rep(sample_ID, nrow(metadata))
+  
+  # Add sample IDs
+  rownames(metadata) <- colnames(data_tmp)
+  
+  # Plot QC metrics
+  ## nUMI_nGene
+  ggplot(metadata, aes(nUMI, nGene)) + geom_point(shape=1) + scale_x_continuous(trans='log10', limits=c(1,max(metadata[["nUMI"]])), breaks = c(sapply(1:4, function(x) 10^x))) +
+    scale_y_continuous(trans='log2', limits=c(1, max(metadata[["nGene"]])), breaks = c(sapply(1:4, function(x) 10^x))) + geom_vline(xintercept=nUMI_min) + geom_vline(xintercept=nUMI_max) +
+    geom_hline(yintercept=nGene_min) + geom_hline(yintercept=nGene_max) +
+    ggtitle(paste0(sample_ID, ": nGene vs nUMI counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
+  
+  ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_nUMI_nGene.pdf"), w=12, h=8)
+  ## percent.mito, percent.ribo
+  ggplot(metadata, aes(percent.mito, percent.ribo)) + geom_point(shape=1) + geom_vline(xintercept=percent.mito_max) +
+    geom_hline(yintercept = percent.ribo_max) + scale_y_continuous(breaks = seq(from=0.1, to=0.9, by=0.1)) +
+    scale_x_continuous(breaks = seq(from=0.1, to=0.9, by=0.1)) + ggtitle(paste0(sample_ID, ": prop. ribo vs. prop. mito, top ", as.character(n_cells), " barcodes"))
+  ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_percent.mito_percent.ribo.pdf"), w=12, h=8)
+  
+  # Filter data matrix on QC metrics
+  idx_QC_ok <- metadata[["nUMI"]] >= nUMI_min & 
+    metadata[["nUMI"]] <= nUMI_max & 
+    metadata[["nGene"]] >= nGene_min & 
+    metadata[["nGene"]] <= nGene_max & 
+    metadata[["percent.mito"]] <= percent.mito_max & 
+    metadata[["percent.ribo"]] <= percent.ribo_max
+  
+  if (sum(idx_QC_ok)>=50) {
+    data_tmp <- data_tmp[,idx_QC_ok]
+    metadata <- metadata[idx_QC_ok,]
+    rownames(metadata) <- colnames(data_tmp)
+    
+    seurat_obj <- CreateSeuratObject(raw.data = data_tmp, 
+                                     project = paste0(prefix_data, "_", prefix_run), 
+                                     min.cells = -Inf, 
+                                     min.genes = -Inf, 
+                                     normalization.method = "LogNormalize", 
+                                     #scale.factor = 1e4, 
+                                     do.scale=F, 
+                                     do.center=F, 
+                                     meta.data = metadata, 
+                                     display.progress = T)
+    
+    # We scale and center here as we do not wish to regress out technical confounders before doubletFinder - see preprint p. 9: https://www.biorxiv.org/content/biorxiv/early/2018/06/20/352484.full.pdf 
+    return(seurat_obj)
+  } else {
+    warning (paste0(sample_ID, " had fewer than 50 cells after QC and was discarded"))
+    return(NULL)
+  }
 }
 
-list_seurat_obj <- parLapplyLB(cl, list_raw, function(rawData) CreateSeuratObject(raw.data = rawData, 
-                                                                                  min.cells = 3, 
-                                                                                  min.genes = 200, 
-                                                                                  project = paste0(prefix_data, "_", prefix_run)))
-stopCluster(cl)
+message("Loading data")
 
-rm(list_raw)
+  args <- list("dir_sample" = dirs_sample, 
+               "sample_ID" = sample_IDs, 
+               "n_cells" = n_cells_recovered)
+  
+  list_seurat_obj <- safeParallel(fun=fun, 
+                                  args=args,
+                                  simplify=F,
+                                  outfile=outfile, 
+                                  dir_plots=dir_plots, 
+                                  prefix_data=prefix_data,
+                                  prefix_run=prefix_run,
+                                  nUMI_min=nUMI_min,
+                                  nUMI_max=nUMI_max, 
+                                  nGene_min=nGene_min, 
+                                  nGene_max=nGene_max, 
+                                  percent.ribo_max=percent.ribo_max, 
+                                  percent.mito_max=percent.mito_max,
+                                  use_filtered_gene_bc_matrices=use_filtered_gene_bc_matrices)
+
 names(list_seurat_obj) <- sample_IDs
+
+idx_sample_ok <- !sapply(list_seurat_obj, is.null)
+
+samples_dropped <- paste0(sample_IDs[!idx_sample_ok], collapse=" ")
+
+samples_dropped_df <- data.frame(samples = samples_dropped, run = prefix_run, percent.mito_max=percent.mito_max, percent.ribo_max=percent.ribo_max)
+
+write.csv(samples_dropped_df, file=paste0(dir_log, prefix_data, "_", prefix_run, "_samples_dropped.csv"), quote = F, row.names = F)
+
+# Filter files 
+list_seurat_obj <- list_seurat_obj[idx_sample_ok]
+sample_IDs <- sample_IDs[idx_sample_ok]
+if (length(n_cells_loaded)==length(idx_sample_ok)) n_cells_loaded <- n_cells_loaded[idx_sample_ok]
+if (length(n_cells_recovered)==length(idx_sample_ok)) n_cells_recovered <- n_cells_recovered[idx_sample_ok]
 
 ######################################################################
 ####################### ADD META DATA  ###############################
 ######################################################################
 
-cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_add_metadata.txt"))
-
-# For each data object, add sample name as a column in metadata
-list_seurat_obj <- clusterMap(cl, function(seurat_obj, sample_ID)
-{ AddMetaData(object = seurat_obj, metadata = data.frame(sample_ID = rep(sample_ID, times=nrow(seurat_obj@meta.data)), row.names = rownames(seurat_obj@meta.data)))
-}, 
-seurat_obj = list_seurat_obj,
-sample_ID = sample_IDs,
-SIMPLIFY=F,
-.scheduling=c("dynamic"))
-
+#Add any additional metadata specified by the user
 if (!is.null(paths_metadata)) {
-  if (length(paths_metadata) != length(list_seurat_obj)) stop("Length of paths_metadata must equal number of data matrices under dir_project_10x / paths_data") 
-  list_metadata <- parLapplyLB(cl, paths_metadata, load_obj)
-  list_seurat_obj <- clusterMap(cl, function(seurat_obj, metadata)
-  { AddMetaData(object = seurat_obj, metadata = data.frame(metadata, row.names = rownames(seurat_obj@meta.data)))
-  }, 
-  seurat_obj = list_seurat_obj,
-  metadata = list_metadata,
-  SIMPLIFY=F,
-  .scheduling=c("dynamic"))
+  if (length(list_metadata)==length(list_seurat_obj)) {
+    message("Adding metadata")
+    outfile = paste0(dir_log, prefix_data,"_",prefix_run,"_load_metadata.txt")
+    fun = load_obj 
+    args = list("X"=paths_metadata)
+    list_metadata <- safeParallel(fun=fun, args=args, outfile=outfile)
+  } else {
+    warning("Number of metadata files must equal number of expression data matrices under dirs_project_10x / paths_data")
+  }
 }
 
-stopCluster(cl)
+######################################################################
+########### SCALE, CENTER, REGRESS OUT CONFOUNDERS ###################
+######################################################################
 
+if (is.null(RAM_Gb_max)) RAM_Gb_max=200
+additional_Gb = max(as.numeric(sapply(list_seurat_obj, FUN = function(x) object.size(x), simplify = T)))/1024^3
+obj_size_Gb <- as.numeric(sum(sapply(ls(envir = .GlobalEnv), function(x) object.size(x=eval(parse(text=x)))))) / 1024^3
+n_cores <- max(1, min(detectCores()%/%3, RAM_Gb_max %/% (obj_size_Gb + additional_Gb))-1)
+n_cores <- min(n_cores, length(list_seurat_obj))
+
+list_seurat_obj <- lapply(X=list_seurat_obj, 
+                          FUN = function(seurat_obj) {
+                            ScaleData(object = seurat_obj,
+                                      vars.to.regress = vars.to.regress, 
+                                      do.scale = T, 
+                                      do.center=T, 
+                                      display.progress = T, 
+                                      do.par = T, 
+                                      num.cores = n_cores)})
+invisible(gc())
+######################################################################
+########## FIND HIGHLY VAR GENES ###########################
+######################################################################
+
+outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_FindVariableGenes.txt")
+fun = function(seurat_obj) FindVariableGenes(object = seurat_obj, do.plot=F)
+args = list("X"=list_seurat_obj)
+list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
+
+######################################################################
+################################ DO PCA ##############################
+######################################################################
+
+message("Computing PCA")
+outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_PCA.txt")
+args = list("seurat_obj"=list_seurat_obj, "obj_name"=names(list_seurat_obj))
+fun = function(seurat_obj, obj_name) {
+  tryCatch({
+  pcs.compute1 = min(n_PC, min(ncol(seurat_obj@scale.data), length(seurat_obj@var.genes))%/%2)
+  RunPCA(object = seurat_obj, 
+         weight.by.var = F,
+         pcs.compute = pcs.compute1, 
+         do.print = F,
+         verbose=T)
+                },   error = function(err1) {
+                  pcs.compute2=min(n_PC, min(ncol(seurat_obj@scale.data), length(seurat_obj@var.genes))%/%3)
+                  warning(paste0("RunPCA failed using ", pcs.compute1, " components with error ", err1, ", maybe due to cell count: ", dim(seurat_obj@data)[2], ". Trying with ", pcs.compute2, " components"))
+                  tryCatch({RunPCA(object = seurat_obj, 
+                                   weight.by.var = F,
+                                   pcs.compute = pcs.compute2, 
+                                   do.print = F, 
+                                   verbose=T)}, error = function(err2) {
+                                     warning(paste0(obj_name, ": PCA failed again with ", pcs.compute2, " components with error: ", err, ". Maybe due to cell count: ", dim(seurat_obj@data)[2], ". Returning seurat object without PCA"))
+                                     seurat_obj})})
+}
+list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile, n_PC =n_PC)
+
+######################################################################
+############################## DO TSNE ###############################
+######################################################################
+
+message("Computing t-SNE")
+outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_TSNE.txt")
+args = list("seurat_obj"=list_seurat_obj, "obj_name" = names(list_seurat_obj))
+fun = function(seurat_obj, obj_name) {
+    perplexity1 = min(30, min(ncol(seurat_obj@dr$pca@cell.embeddings),ncol(seurat_obj@data))%/%1.5)
+    tryCatch({RunTSNE(object = seurat_obj, 
+                      reduction.use = "pca", 
+                      dims.use = 1:min(30,ncol(seurat_obj@dr$pca@cell.embeddings)), # no need to use all PCs for t-SNE
+                      do.fast=T,
+                      perplexity=perplexity1)}, error = function(err1) {
+                        perplexity2 = perplexity1 = min(30, min(ncol(seurat_obj@dr$pca@cell.embeddings),ncol(seurat_obj@data))%/%2.5)
+                        warning(paste0(obj_name, ": RunTSNE failed with error: ", err1, ", using perplexity ", perplexity1, ". Maybe due to cell count: ", dim(seurat_obj@data)[2], ". Trying with perplexity ", perplexity2))
+                        tryCatch({RunTSNE(object = seurat_obj, 
+                                          reduction.use = "pca", 
+                                          dims.use = 1:min(30,ncol(seurat_obj@dr$pca@cell.embeddings)), # no need to use all PCs for t-SNE
+                                          do.fast=T,
+                                          check_duplicates=F,
+                                          perplexity = perplexity2)
+                        }, error= function(err2) {
+                          warning(paste0("RunTSNE failed again with error ", err2, ", returning original seurat object"))
+                          seurat_obj})
+                      })
+  }
+list_seurat_obj = safeParallel(fun=fun, args=args, outfile=outfile)
+  
+######################################################################
+######################### FIND DOUBLETS ##############################
+######################################################################
+
+if (rm_sc_multiplets) {
+  
+  message("Detecting doublets")
+  
+  # doublet rate data source: 10x https://pdfs.semanticscholar.org/presentation/0c5c/ad2edbb8f0b78cdba1c78b4324213ac20ab3.pdf
+  
+  #train_rate <- c(0.4, 0.8, 1.6, 2.3, 3.1, 3.9, 4.6, 5.4, 6.1, 6.9, 7.6)
+  #train_cells_loaded <- c(870, 1700, 3500, 5300, 7000, 8700, 10500, 12200, 14000, 15700, 17400)
+  # train_rate <- c(0,0.6,0.8,5.1,7.6,10.5)
+  # train_cells_loaded <- c(150, 1530,1700, 10000, 17000, 19000)
+  
+  #doub_rate_lm <- lm(train_rate~train_cells_loaded)
+  #n_expected_doub <- round((doub_rate_lm$coefficients[1]+doub_rate_lm$coefficients[2]*n_cells_loaded)/100*n_cells_loaded, 0)
+  
+  # Get doublet predictions as metadata
+  
+  outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_doubletFinder.txt")
+  fun = function(seurat_obj, obj_name) {
+      tryCatch({doubletFinder(seu = seurat_obj, 
+                              #expected.doublets = n_expected_doub, 
+                              proportion.artificial = 0.5, proportion.NN=0.1)}, 
+               error = function(err) {
+                 warning(paste0(obj_name, ": doubletFinder failed with error: ", err, ".  Maybe due to cell count: ", dim(seurat_obj@data)[2], ". Returning seurat object without predicted doublets"))
+                 seurat_obj
+               })
+  }
+  args = list("seurat_obj"=list_seurat_obj, "obj_name" = names(list_seurat_obj))
+  
+  list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile, doubletFinder=doubletFinder)#,n_expected_doub=n_expected_doub)
+    
+  ##### Plot the doublets #####
+  
+  args = list("seurat_obj"=list_seurat_obj, "obj_name" = names(list_seurat_obj))
+  outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_doubletFinderPlots.txt")
+  fun= function(seurat_obj, obj_name) {
+      try({
+        TSNEPlot(object = seurat_obj, group.by="pANNPredictions",  
+                       plot.title=paste0(obj_name, " predicted doublets"))
+        ggsave(filename=paste0(dir_plots, prefix_data, "_", prefix_run, "_", obj_name, "_TSNE_doublets.pdf"), w = 10, h = 10)
+        })
+  }
+  invisible(safeParallel(fun=fun, args=args, outfile=outfile))
+  #try(invisible(mapply(FUN = fun, seurat_obj=list_seurat_obj, obj_name = names(list_seurat_obj), SIMPLIFY=F)))
+ 
+  # Save a log 
+  log_prop_singlets <- sapply(X= list_seurat_obj, FUN = function(seurat_obj){
+    tryCatch({
+      round(sum(seurat_obj@meta.data$pANNPredictions=="Singlet")/nrow(seurat_obj@meta.data),2)}, error = function(err) NA)
+  }, simplify = T)
+  
+  log_prop_singlets_df <- matrix(log_prop_singlets, nrow=1) %>% data.frame(.,stringsAsFactors = F, row.names = NULL)
+  colnames(log_prop_singlets_df) <- names(list_seurat_obj)
+  write.table(log_prop_singlets, file=paste0(dir_log, prefix_data, "_", prefix_run, "_prop_singlets.tab"))
+  
+  message("Removing suspected doublets")
+  # Filter out doublets
+  outfile = paste0(dir_log, prefix_data, "_", prefix_run, "_doubletFinder_subset.txt")
+  fun = function(seurat_obj, obj_name) {
+    tryCatch({
+      SubsetData(object=seurat_obj, subset.name = "pANNPredictions", accept.value="Singlet", subset.raw=T)
+    }, error = function(err) {
+      warning(paste0(obj_name, ": filtering out doublets failed with error: ", err, ". Maybe doubletFinder failed, possibly due to an upstream PCA or t-SNE failure."))
+      seurat_obj
+    })
+  }
+  args=list(seurat_obj=list_seurat_obj, obj_name = names(list_seurat_obj))  
+  list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
+}
 ######################################################################
 ############################# MERGE ##################################
 ######################################################################
 
-if (!is.null(merge_IDs)) {
-  if (length(merge_IDs)==1) {
-    for (i in 1:length(list_seurat_obj)) {
+if (!is.null(merge_group_IDs) | !is.null(merge_specify)) {
+  
+  list_seurat_merged = NULL 
+  
+  message("Merging samples")
+  
+  if (!is.null(merge_group_IDs)) {
+    if (merge_group_IDs[1] == 'all') {
+      list_vec_merge_idx <- list('all'=rep(TRUE, length=length(list_seurat_obj)))
+      names(list_vec_merge_idx[[1]])=names(list_seurat_obj)
+    } else {
+      list_vec_merge_idx <- lapply(merge_group_IDs, function(id) {
+        vec_idx <- grep(pattern=id, 
+                              x = names(list_seurat_obj),
+                              ignore.case=T)
+        if (length(vec_idx)>0) names(vec_idx) <- names(list_seurat_obj)[vec_idx]
+        vec_idx
+        })
+      names(list_vec_merge_idx) = merge_group_IDs
+      list_vec_merge_idx <- Filter(f = length, x=list_vec_merge_idx)
+      if (length(list_vec_merge_idx)==0) stop("merge_group_IDs: no matches")
+    }
+  } else if (!is.null(merge_specify)) {
+    list_vec_merge_idx <- lapply(merge_specify, function(vec_sample_ids) {
+      sapply(vec_sample_ids, function(id) {
+        vec_idx <- grep(pattern=id, x = names(list_seurat_obj), ignore.case = T)
+        if (length(vec_idx)>0) names(vec_idx) <- names(list_seurat_obj)[vec_idx]
+        vec_idx
+      }, simplify=T)
+    }) 
+    merge_group_IDs <- names(list_vec_merge_idx)  <- names(merge_specify)
+    list_vec_merge_idx <- Filter(f=length, x = list_vec_merge_idx)
+    if (length(list_vec_merge_idx)==0) stop("merge_specify: no matches")
+  }
+
+  list_list_seurat_to_merge <- list()
+  for (name in names(list_vec_merge_idx)) {
+    list_list_seurat_to_merge[[name]] <- list_seurat_obj[unlist(list_vec_merge_idx[[name]])] 
+  }
+  
+  rm(list_seurat_obj)
+  
+  list_seurat_merged <- lapply(list_list_seurat_to_merge, function(list_seurat_to_merge) {
+    
+    for (i in 1:length(list_seurat_to_merge)) {
+      colnames(list_seurat_to_merge[[i]]@raw.data) <- rownames(list_seurat_to_merge[[i]]@meta.data) <- list_seurat_to_merge[[i]]@cell.names <- paste0(i, "_", list_seurat_to_merge[[i]]@cell.names)
       if (i == 1) {
-        # list_seurat_merged is of length 1, just for consistency with other code
-        list_seurat_merged <- list_seurat_obj[i] # single brackets intended
+        seurat_merged <- list_seurat_to_merge[[i]]
       } else {
-        list_seurat_merged <- list(MergeSeurat(object1 = list_seurat_merged[[1]], 
-                                     object2 = list_seurat_obj[[i]],
+        seurat_merged <- MergeSeurat(object1 = seurat_merged, 
+                                     object2 = list_seurat_to_merge[[i]],
                                      project = paste0(prefix_data, "_", prefix_run),
                                      min.cells = -Inf,
                                      min.genes = -Inf,
-                                     do.normalize = F,
-                                     add.cell.id2 = names(list_seurat_obj)[i])) 
+                                     do.normalize = T,
+                                     do.scale=T,
+                                     do.center=T)
+                                     #add.cell.id2 = names(list_seurat_to_merge)[i])
       }
     }
-  } else {
-    
-    cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, "MergeSeurat.txt"))
-    
-    list_vec_merge_idx <- parLapplyLB(cl, merge_IDs, function(id) grep(pattern=id, 
-                                                     x = names(list_seurat_obj),
-                                                     ignore.case=T))
-    list_list_seurat_obj_tmp <- list()
-    
-    list_list_seurat_obj_tmp[[merge_IDs[i]]] <- parLapplyLB(cl, list_vec_merge_idx, function(vec_merge_idx) list_seurat_obj[vec_merge_idx]) 
-    
-    list_seurat_merged <- clusterMap(cl, list_list_seurat_obj_tmp, function(list_seurat_obj_tmp) {
-      
-      for (i in 1:length(list_seurat_obj_tmp)) {
-        if (i == 1) {
-          seurat_merged <- list_seurat_obj_tmp[[i]]
-        } else {
-          seurat_merged <- MergeSeurat(object1 = seurat_merged, 
-                                       object2 = list_seurat_obj_tmp[[i]],
-                                       project = paste0(prefix_data, "_", prefix_run),
-                                       min.cells = -Inf,
-                                       min.genes = -Inf,
-                                       do.normalize = F,
-                                       add.cell.id2 = names(list_seurat_obj_tmp)[i])
-        }
-      }
-      
-    })
+    seurat_merged 
+  })
+
+  rm(list_list_seurat_to_merge)
   
-    
-    rm(list_list_seurat_obj_tmp)
-  }
-  
-  names(list_seurat_merged) <- merge_IDs
+  names(list_seurat_merged) <- merge_group_IDs
   list_seurat_obj <- list_seurat_merged
   rm(list_seurat_merged)
   
-  ## Add merge_IDs as metadata
-  list_seurat_obj <- clusterMap(cl, function(seurat_obj, merge_ID)
-  { AddMetaData(object = seurat_obj, metadata = data.frame(merge_ID = rep(merge_ID, times=nrow(seurat_obj@meta.data)), row.names = rownames(seurat_obj@meta.data)))
-  }, 
+  list_seurat_obj <- mapply(function(seurat_obj, merge_ID)
+  { AddMetaData(object = seurat_obj, 
+                metadata = data.frame(merge_ID = rep(merge_ID, 
+                                                     times=nrow(seurat_obj@meta.data)), 
+                                      row.names = rownames(seurat_obj@meta.data)))}, 
   seurat_obj = list_seurat_obj,
-  merge_ID = merge_IDs, SIMPLIFY=F,
-  .scheduling=c("dynamic"))
-  stopCluster(cl)
-}
-######################################################################
-####################### DO QUALITY CONTROL ###########################
-######################################################################
-
-if (flag_datatype == "sc") {
-  
-  cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, "ribo_mito_filter.txt"))
-  
-  list_seurat_obj <- parLapplyLB(cl, list_seurat_obj, function(seurat_obj) {
-    mito.genes <- grep(pattern = "^mt-", x = rownames(x = seurat_obj@raw.data), value = TRUE, ignore.case=T)
-    ribo.genes <- grep(pattern = "^Rp[sl][[:digit:]]", x = rownames(x = seurat_obj@raw.data), value = TRUE)
-    percent.mito <- Matrix::colSums(seurat_obj@raw.data[mito.genes, ])/Matrix::colSums(seurat_obj@raw.data)
-    percent.ribo <- Matrix::colSums(seurat_obj@raw.data[ribo.genes, ])/Matrix::colSums(seurat_obj@raw.data)
-    seurat_obj <- AddMetaData(object = seurat_obj, metadata = percent.mito, col.name = "percent.mito")
-    seurat_obj <- AddMetaData(object = seurat_obj, metadata = percent.ribo, col.name = "percent.ribo")
-    seurat_obj
-  }) 
-  
-  clusterMap(cl, function(seurat_obj, sample) {
-    
-    f1 <- VlnPlot(object = seurat_obj, features.plot = c("nGene", "nUMI", "percent.mito","percent.ribo"), nCol = 4, do.return = T)
-    par(mfrow = c(1, 2))
-    ggsave(plot = f1, filename =  paste0(dir_plots,"_",prefix_data,"_", prefix_run,"_", sample,"_violinplot.pdf"), w=12, h=8)
-    
-    pdf(file =  paste0(dir_plots,flag_date,"_",prefix_data,"_",prefix_run,"_",  sample,"_geneplot_nUMI_percent.mito.pdf"), w=12, h=8)
-    GenePlot(object = seurat_obj, gene1 = "nUMI", gene2 = "percent.mito")
-    dev.off()
-    
-    pdf(file =  paste0(dir_plots,flag_date,"_",prefix_data,"_",prefix_run,"_",  sample,"_geneplot_nUMI_percent.ribo.pdf"), w=12, h=8)
-    GenePlot(object = seurat_obj, gene1 = "nUMI", gene2 = "percent.ribo")
-    dev.off()
-    
-    pdf(file=paste0(dir_plots,flag_date,"_",prefix_data,"_", prefix_run,"_", sample,"_geneplot_percent.mito_percent.ribo.pdf"), w=12, h=8)
-    GenePlot(object = seurat_obj, gene1 = "percent.mito", gene2 = "percent.ribo")
-    dev.off()
-    
-    pdf(file=paste0(dir_plots,flag_date,"_",prefix_data,"_", prefix_run,"_", sample,"_geneplot_nUMI_nGene.pdf"), w=12, h=8)
-    GenePlot(object = seurat_obj, gene1 = "nUMI", gene2 = "nGene")
-    dev.off()
-    
-  }, seurat_obj = list_seurat_obj,  sample = names(list_seurat_obj), SIMPLIFY=F)
-  
-  # Filter out cells with high mito / ribo content
-  list_seurat_obj_cellnames <- lapply(list_seurat_obj, function(seurat_obj) as.character(seurat_obj@ident))
-  
-  list_seurat_obj <- clusterMap(cl, function(seurat_obj, sample) {
-    
-    seurat_obj_copy <- seurat_obj
-    
-    seurat_obj <- try(FilterCells(object = seurat_obj, 
-                                  subset.names = c("nGene", "percent.mito", "percent.ribo"), 
-                                  low.thresholds = c(100, -Inf, -Inf), 
-                                  high.thresholds = c(5000,0.15,0.15)))
-    if (class(seurat_obj)=="try-error") {
-      warning(paste0(sample, ": FilterCells failed, returning unfiltered object"))
-      return(seurat_obj_copy) 
-    } else return(seurat_obj)
-  },  seurat_obj=list_seurat_obj, sample=names(list_seurat_obj), SIMPLIFY=F)
-
-  
-  df_filtered <- clusterMap(cl, function(old, new) {
-    vec_filtered <- setdiff(x = old, y = as.character(new@ident))
-    vec_filtered
-  },
-  old = lapply(list_seurat_obj, function(seurat_obj) seurat_obj@ident), 
-  new = list_seurat_obj, 
-  SIMPLIFY=T, .scheduling = c("dynamic"))
-                        
-  write.table(x = df_filtered, file = paste0(dir_log, prefix_data, "_", prefix_run, "_mito_ribo_cells_filtered_out.csv"), quote = F, col.names = T)
-  rm(df_filtered)
-  
-  stopCluster(cl)
-  
+  merge_ID = names(list_seurat_obj), SIMPLIFY=F)
 }
 
-######################################################################
-########## NORMALIZE, SCALE AND FIND HIGHLY VAR GENES ###########################
-######################################################################
+invisible({gc(); R.utils::gcDLLs()})
 
-cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, "Normalize_Scale_HVG.txt"))
-
-list_seurat_obj <- parLapply(cl, list_seurat_obj, function(seurat_obj) NormalizeData(object = seurat_obj, 
-                                                                                     normalization.method = "LogNormalize",  
-                                                                                     scale.factor = 1e4, 
-                                                                                     display.progress=T))
-
-list_seurat_obj <- parLapply(cl, list_seurat_obj, function(seurat_obj) {
-  
-  FindVariableGenes(object = seurat_obj, 
-                    mean.function = ExpMean, 
-                    dispersion.function = LogVMR, 
-                    x.low.cutoff = 0.0125, 
-                    x.high.cutoff = 3, 
-                    y.cutoff = 0.5,
-                    do.plot=F, display.progress =F)
-})
-
-stopCluster(cl)
-
-list_seurat_obj <- lapply(list_seurat_obj, function(seurat_obj) ScaleData(object = seurat_obj, 
-                             genes.use = NULL, 
-                             vars.to.regress = c("nUMI", "percent.mito", "percent.ribo"), 
-                             model.use="linear", 
-                             do.scale=T, 
-                             do.center=T, 
-                             do.par=T, 
-                             num.cores=n_cores))  
-
-######################################################################
-################## FIND HVG UNION AS FEATURES FOR ALIGNMENT ##########
-######################################################################
-## Select genes as features for Canonical Correlation Analysis-based alignment
-# we will take the union of the top 2k variable genes in each dataset for alignment 
-
-if (!is.null(align_IDs)) {
-  
-  cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, "GetHighlyVariableGenes.txt"))
-  
-  list_hvg <- parLapply(cl, list_seurat_obj, function(seurat_obj) {
-    hvg <- rownames(x= head(x=seurat_obj@hvg.info, n = 2000))
-    return(hvg)
-  })
-  stopCluster(cl)
-  
-  hvg.union <- Reduce(f = dplyr::union, x = list_hvg) #nb: dplyr::union removes duplicates
-  
-  list_rownames <- lapply(list_seurat_obj, function(seurat_obj) rownames(seurat_obj@scale.data))
-  
-  for (rnames in list_rownames) {
-    hvg.union <- intersect(hvg.union, rnames)
-  }
-}
 ######################################################################
 ######################### DO ALIGNMENT ###############################
 ######################################################################
 
-if (!is.null(align_IDs)) {
+if (!is.null(align_group_IDs) | !is.null(align_specify)) {
   
-  cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, "AlignCCA.txt"))
+  # make extra sure that the cells have different names
+  for (i in 1:length(list_seurat_obj)) {
+    colnames(list_seurat_obj[[i]]@raw.data) <- colnames(list_seurat_obj[[i]]@data) <- rownames(list_seurat_obj[[i]]@meta.data) <- list_seurat_obj[[i]]@cell.names <- paste0(i, "_", list_seurat_obj[[i]]@cell.names)
+  }
   
-  if (length(align_IDs)==1) {
-    for (i in 1:length(list_seurat_obj)) {
-      list_seurat_obj <- list(parLapply(cl, list_seurat_obj, function(seurat_obj) {
-        RunMultiCCA(object.list=list_seurat_obj, 
-                    genes.use=hvg.union, 
-                    add.cell.ids = names(list_seurat_obj), 
-                    niter = 25,
-                    num.ccs = n_comp, 
-                    standardize = TRUE) }))
+  message("Aligning datasets")
+  
+  list_seurat_align = NULL
+  
+  if (!is.null(align_group_IDs)) {
+    if ('all' %in% align_group_IDs) {
+      
+      message("Finding common variable genes as features for aligning datasets")  
+      ## Select genes as features for Canonical Correlation Analysis-based alignment
+      # we will take the union of the top 2k variable genes in each dataset for alignment 
+      
+      outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_GetHighlyVariableGenes.txt")
+      fun = function(seurat_obj) {
+        hvg <- rownames(x= head(x=seurat_obj@hvg.info, n = 2000))
+        return(hvg)}
+      args= list("X"=list_seurat_obj)
+      list_hvg <- safeParallel(fun=fun, args=args, outfile=outfile)
+      
+      hvg.union <- Reduce(f = dplyr::union, x = list_hvg) #nb: dplyr::union removes duplicates
+      
+      list_rownames <- lapply(list_seurat_obj, function(seurat_obj) rownames(seurat_obj@scale.data))
+      
+      for (rnames in list_rownames) {
+        hvg.union <- intersect(hvg.union, rnames)
+      }
+      
+      if (length(list_seurat_obj)==2) {
+        list_seurat_align <- list(Seurat::RunCCA(object = list_seurat_obj[[1]], 
+                                                 object2 = list_seurat_obj[[2]], 
+                                                 #add.cell.id1 = names(list_seurat_obj)[1],
+                                                 #add.cell.id2 = names(list_seurat_obj)[2],
+                                                 genes.use = hvg.union, num.cc = n_CC))
+      } else if (length(list_seurat_obj)>=3) {
+        list_seurat_align <- list(RunMultiCCA(object.list=list_seurat_obj, 
+                                              genes.use=hvg.union, 
+                                              #add.cell.ids = paste0(names(list_seurat_obj),"_"), 
+                                              niter = 25,
+                                              num.ccs = n_CC, 
+                                              standardize = TRUE))
       }
     
-  } else if (length(align_IDs==2)) {
-    
-    list_seurat_obj <- parLapply(cl, list_seurat_obj, function(seurat_obj) {
-      
-      RunCCA(object = list_seurat_obj[[1]],
-             object2 = list_seurat_obj[[2]], 
-             group1 = names(list_seurat_obj)[[1]], 
-             group2 = names(list_seurat_obj)[[2]]) })
-    
-    
-  } else {
-
-    list_vec_align_idx <- parLapplyLB(cl, align_IDs, function(id) grep(pattern=id, 
-                                                                       x = names(list_seurat_obj),
-                                                                       ignore.case=T))
-    
-    list_list_seurat_obj_tmp[[align_IDs[i]]] <- parLapplyLB(cl, list_vec_align_idx, function(vec_align_idx) list_seurat_obj[vec_align_idx]) 
-    
-    list_seurat_align <- clusterMap(cl, list_list_seurat_obj_tmp, function(list_seurat_obj_tmp) {
-      
-    for (i in 1:length(list_seurat_obj_tmp)) {
-      RunMultiCCA(object.list=list_seurat_obj, 
-                  genes.use=hvg.union, 
-                  add.cell.ids = names(list_seurat_obj_tmp), 
-                  niter = 25,
-                  num.ccs = n_comp, 
-                  standardize = TRUE) 
-      }
+    } else {
+        # a list of vectors giving the idx within the list_seurat_obj of seurat_obj to merge
+        list_vec_align_idx <- lapply(align_group_IDs, function(id) grep(pattern=id, 
+                                                                        x = names(list_seurat_obj),
+                                                                        ignore.case=T))
+        list_vec_align_idx <- Filter(f=length,x=list_vec_align_idx)
+        if (length(list_vec_align_idx)==0) stop("align_group_IDs: no matches")
+    }
+  } else if (!is.null(align_specify)) {
+    list_vec_align_idx <- lapply(align_specify, function(vec_sample_ids) {
+      sapply(vec_sample_ids, function(id) {
+        grep(pattern=id, x = names(list_seurat_obj), ignore.case = T)
+      })
     })
+    align_group_IDs <- names(align_specify)
+    list_vec_align_idx <- Filter(f=length, x=list_vec_align_idx)
+    if (length(list_vec_align_idx)==0) stop("align_specify: no matches")
   }
     
-  stopCluster(cl)
+  if (is.null(list_seurat_align)) {
+  # a list of lists of seurat objects to align
+    group_list_seurat_obj_tmp <- lapply(list_vec_align_idx, function(vec_align_idx) {list_seurat_obj[vec_align_idx]}) 
   
-  rm(list_list_seurat_obj_tmp)
+    outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_MultiCCA.txt")
+    
+    fun = function(list_seurat_obj_tmp) {
+      
+      message("Finding common variable genes as features for aligning datasets")  
+      ## Select genes as features for Canonical Correlation Analysis-based alignment
+      # we will take the union of the top 2k variable genes in each dataset for alignment 
+      fun = function(seurat_obj) {
+        hvg <- rownames(x= head(x=seurat_obj@hvg.info, n = 2000))
+        return(hvg)}
+      list_hvg <- lapply(FUN = fun, "X"=list_seurat_obj_tmp)
+      hvg.union <- Reduce(f = dplyr::union, x = list_hvg) #nb: dplyr::union removes duplicates
+      
+      list_rownames <- lapply(list_seurat_obj_tmp, function(seurat_obj) rownames(seurat_obj@scale.data))
 
-  names(list_seurat_align) <- align_IDs
+      for (rnames in list_rownames) {
+        hvg.union <- intersect(hvg.union, rnames)
+      }
+      
+      RunMultiCCA(object.list=list_seurat_obj_tmp, 
+                      genes.use=hvg.union, 
+                      add.cell.ids = names(list_seurat_obj_tmp), 
+                      niter = 25,
+                      num.ccs = n_CC, 
+                      standardize = TRUE) 
+      
+    }
+    args = list("X"=group_list_seurat_obj_tmp)
+    rm(group_list_seurat_obj_tmp)
+    list_seurat_align <- safeParallel(fun=fun, args=args, outfile=outfile, n_CC=n_CC, hvg.union=hvg.union)
+    
+  }
+  
+  names(list_seurat_align) <- align_group_IDs
   list_seurat_obj <- list_seurat_align
   rm(list_seurat_align)
-  
+
 }
 
 ######################################################################
@@ -533,303 +757,592 @@ if (!is.null(align_IDs)) {
 ######################################################################
 ## Visualize results of CCA plot CC1 versus CC2 and look at a violin plot
 
-if (!is.null(align_IDs)) {
+if (!is.null(align_group_IDs)) {
   
-  cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, "plotCCA.txt"))
-  
-  invisible(clusterMap(cl, function(seurat_obj, name) {
-    par(mfrow = c(1, 2))
-    p1 <- DimPlot(object = seurat_obj,
-                  reduction.use = "cca",
-                  group.by = "sample_ID",
-                  pt.size = 0.5,
-                  do.return = TRUE)
-    
-    p2 <- VlnPlot(object = seurat_obj,
-                  features.plot = "CC1",
-                  group.by = "sample_ID",
-                  do.return = TRUE,
-                  point.size.use = 0.1)
-    plot_grid(p1, p2)
-    
-    ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", name, "_CC1_vs_CC2_and_violin.pdf"), w=12, h=8)
-    
-    # MetageneBicorPlot shows shared correlation strength vs CCs
-    p3 <- MetageneBicorPlot(seurat_obj, 
-                           grouping.var = "sample_ID", 
-                           dims.eval = 1:n_comp, 
-                           display.progress = F)
-    ggsave(plot = p3, filename = paste0(dir_plots,prefix_data,"_",prefix_run,"_", name, "_metageneBicorPlot.pdf"), w=12, h=8)
-    
-    pdf(file =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", name, "_CCA_DimHeatMap.pdf"), w=18, h=12)
-    
-    DimHeatmap(object = seurat_obj, 
-               reduction.type = "cca", 
-               cells.use = 500, 
-               dim.use = 1:n_comp, 
-               do.balanced = TRUE)
-    dev.off()
-    
-    
-  }, seurat_obj = list_seurat_obj, 
-  name = names(list_seurat_obj), 
-  SIMPLIFY=F, 
-  .scheduling = c("dynamic")))
-  
-  stopCluster(cl)
+  message("Plotting CCA")
+  fun = function(seurat_obj, name) {
+      tryCatch({
+      par(mfrow = c(1, 2))
+      p1 <- DimPlot(object = seurat_obj,
+                    reduction.use = "cca",
+                    group.by = "sample_ID",
+                    pt.size = 0.5,
+                    do.return = TRUE)
+      
+      p2 <- VlnPlot(object = seurat_obj,
+                    features.plot = "CC1",
+                    group.by = "sample_ID",
+                    do.return = TRUE,
+                    point.size.use = 0.1)
+      plot_grid(p1, p2)
+      
+      ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", name, "_CC1_vs_CC2_and_violin.pdf"), w=12, h=8)
+      
+      # MetageneBicorPlot shows shared correlation strength vs CCs
+      p3 <- MetageneBicorPlot(seurat_obj, 
+                              grouping.var = "sample_ID", 
+                              dims.eval = 1:n_CC, 
+                              display.progress = F)
+      ggsave(plot = p3, filename = paste0(dir_plots,prefix_data,"_",prefix_run,"_", name, "_metageneBicorPlot.pdf"), w=12, h=8)
+      
+      pdf(file =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", name, "_CCA_DimHeatMap.pdf"), w=18, h=12)
+      
+      DimHeatmap(object = seurat_obj, 
+                 reduction.type = "cca", 
+                 cells.use = 500, 
+                 dim.use = 1:n_CC, 
+                 do.balanced = TRUE)
+      dev.off()}, error = function(err) {warning(paste0(name, ": CCA plotting failed"))})
+  }
+  args=list("seurat_obj" = list_seurat_obj, 
+            "name" = names(list_seurat_obj))
+  outfile = paste0(dir_log, prefix_data, "_", prefix_run, "_log_CCAPlots.txt")
+  invisible(safeParallel(fun=fun, args=args,outfile=outfile))
 }
 
 ######################################################################
 ###################### KEEP WHAT CAN BE ALIGNED ######################
 ######################################################################
 
-if (!is.null(align_IDs)) {
+if (!is.null(align_group_IDs) | !is.null(align_specify)) {
   
-  cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, "filter_CCA.txt"))
+  message("Plotting expression on CC1 and CC2")
   
-  clusterMap(cl, function(seurat_obj, name) {
-    
-  seurat_obj <- CalcVarExpRatio(object = seurat_obj, 
-                                     reduction.type = "pca", 
-                                     grouping.var = "sample_ID", # TODO: what is the correct parameter?
-                                     dims.use = 1:n_comp)
-  
-  # seurat_discard <- SubsetData(object = seurat_obj, 
-  #                              subset.name = "var.ratio.pca", 
-  #                              accept.high = 0.5)
-  
-  seurat_obj <- SubsetData(object = seurat_obj, 
-                                subset.name = "var.ratio.pca", 
-                                accept.low = 0.50)
-  
-  seurat_obj <- AlignSubspace(object=seurat_obj, 
-                                   reduction.type = "cca", 
-                                   grouping.var = "sample_ID", 
-                                   dims.align = 1:n_comp)
-  
-  ## Visualize the aligned CCAs
-  p1 <- VlnPlot(object = seurat_obj, 
-                features.plot = "ACC1", 
-                group.by = "sample_ID", #TODO
-                do.return = TRUE, 
-                point.size.use = 0.1)
-  
-  p2 <- VlnPlot(object = seurat_obj, 
-                features.plot = "ACC2", 
-                group.by = "sample_ID", #TODO
-                do.return = TRUE, 
-                point.size.use = 0.1)
-  
-  plot_grid(p1, p2)
-  
-  ggsave(filename =  paste0(dir_plots,data_prefix,"_",run_prefix,"_", name, "_aligned_CCs_vlnPlots.pdf"), w=12, h=8)
-  
-  return(seurat_obj)
-  
-  }
-  , seurat_obj = list_seurat_obj, 
-  name = names(list_seurat_obj), 
-  SIMPLIFY=F, 
-  .scheduling = c("dynamic"))
-}
-
-######################################################################
-################### DO DIMENSIONALITY REDUCTION ######################
-######################################################################
-
-cl <- makeCluster(spec=n_cores, type = "FORK", outfile=paste0(dir_log, "dimReduction.txt"))
-
-  list_seurat_obj <- parLapply(cl, list_seurat_obj, function(seurat_obj) {
-    RunPCA(object = seurat_obj, 
-           pcs.compute = min(n_comp, min(dim(seurat_obj@data))), 
-           do.print = F)
-  })
-  
-  list_seurat_obj <- parLapply(cl, list_seurat_obj, function(seurat_obj) {
-    RunTSNE(object = seurat_obj, 
-            reduction.use = if (is.null(align_IDs)) "pca" else "cca.aligned", 
-            dims.use = 1:min(50,min(n_comp, min(dim(seurat_obj@data)))),
-            do.fast=T)
-  })
-
-stopCluster(cl)
-
-######################################################################
-###################### FIND CLUSTERS, MARKERS ########################
-######################################################################
-
-if (!is.null(res_to_calc)) {
-  
-  cl <- makeCluster(min(length(res_to_calc),n_cores), type = "FORK", outfile=paste0(dir_log, "FindClusters_multiple_res_FindMarkers.txt"))
-  
-  list_seurat_obj <- lapply(list_seurat_obj, function(seurat_obj) {
-    # Run FindClusters in parallel using different resolution parameter values
-    list_seurat_obj_res <- parLapply(cl,
-                                     res_to_calc,
-                                     function(x) FindClusters(object = seurat_obj,
-                                                              reduction.type = if (is.null(align_IDs)) "pca" else "cca.aligned",
-                                                              dims.use = 1:n_comp,
-                                                              print.output = 0,
-                                                              save.SNN = T,
-                                                              resolution = x))
-    # Save all the cluster assignments as meta data in the original seurat object
-    for (i in seq(1:length(res_to_calc))) {
-      seurat_obj <- AddMetaData(seurat_obj, list_seurat_obj_res[[i]]@ident, col.name = paste0("clust.res.", res_to_calc[i]))
+  fun = function(seurat_obj, name) {
+      # seurat_obj <- CalcVarExpRatio(object = seurat_obj, 
+      #                               reduction.type = "pca", 
+      #                               grouping.var = "sample_ID", # TODO: what is the correct parameter?
+      #                               dims.use = 1:n_CC)
+      # # seurat_discard <- SubsetData(object = seurat_obj, 
+      # #                              subset.name = "var.ratio.pca", 
+      # #                              accept.high = 0.5)
+      # seurat_obj <- SubsetData(object = seurat_obj, 
+      #                          subset.name = "var.ratio.pca", 
+      #                          accept.low = 0.50)
+      # align the subspaces
+      seurat_obj <- AlignSubspace(object=seurat_obj, 
+                                  reduction.type = "cca", 
+                                  grouping.var = "sample_ID", 
+                                  dims.align = 1:n_CC)
+      ## Visualize the aligned CCAs
+      p1 <- VlnPlot(object = seurat_obj, 
+                    features.plot = "ACC1", 
+                    group.by = "sample_ID", #TODO
+                    do.return = TRUE, 
+                    point.size.use = 0.1)
+      
+      p2 <- VlnPlot(object = seurat_obj, 
+                    features.plot = "ACC2", 
+                    group.by = "sample_ID", #TODO
+                    do.return = TRUE, 
+                    point.size.use = 0.1)
+      
+      plot_grid(p1, p2)
+      ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", name, "_aligned_CCs_vlnPlots.pdf"), w=12, h=8)
+      return(seurat_obj)
     }
-    # No need to have this massive list in session!
-    rm(list_seurat_obj_res)
+    args= list("seurat_obj" = list_seurat_obj, 
+                "name" = names(list_seurat_obj))
+    outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_filter_CCA.txt")
     
-    seurat_obj <- SetAllIdent(object = seurat_obj, id = paste0("clust.res.", res_primary))
-  
-    return(seurat_obj)
-  })
-  
-} else {
-  
-  cl <- makeCluster(n_cores, type = "FORK", outfile=paste0(dir_log, "FindClusters_markers.txt"))
-  
-  list_seurat_obj <- parLapplyLB(cl, list_seurat_obj, function(seurat_obj) FindClusters(object = seurat_obj,
-                                              reduction.type = if (is.null(align_IDs)) "pca" else "cca.aligned",
-                                              dims.use = 1:n_comp,
-                                              print.output = 0,
-                                              save.SNN = T,
-                                              resolution = res_primary))
+    list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
 }
 
+
+######################################################################
+########## FIND HIGHLY VAR GENES (AFTER MERGING OR ALIGNING) #########
+######################################################################
+
+if (any(sapply(c(merge_specify, merge_group_IDs, align_specify, align_group_IDs), length))) {
+  
+  outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_FindVariableGenes.txt")
+  fun = function(seurat_obj) {
+      FindVariableGenes(object = seurat_obj, do.plot=F)
+    }
+  args = list("X" = list_seurat_obj)
+  list_seurat_obj <- safeParallel(fun=fun,args=args, outfile=outfile)
+
+}
+######################################################################
+################ PCA (AFTER MERGING OR ALIGNING) #####################
+######################################################################
+
+if (is.null(align_group_IDs) & is.null(align_specify)) {
+  message("Computing PCA")
+  fun =  function(seurat_obj, obj_name) {
+      tryCatch({
+        pcs.compute1 = min(n_PC, min(ncol(seurat_obj@scale.data), length(seurat_obj@var.genes))%/%2)
+        RunPCA(object = seurat_obj, 
+               weight.by.var = F,
+               pcs.compute = pcs.compute1, 
+               do.print = F,
+               verbose=T)
+      },   error = function(err1) {
+        pcs.compute2=min(n_PC, min(ncol(seurat_obj@scale.data), length(seurat_obj@var.genes))%/%3)
+        warning(paste0("RunPCA failed using ", pcs.compute1, " components with error ", err1, ", maybe due to cell count: ", dim(seurat_obj@data)[2], ". Trying with ", pcs.compute2, " components"))
+        tryCatch({RunPCA(object = seurat_obj, 
+                         weight.by.var = F,
+                         pcs.compute = pcs.compute2, 
+                         do.print = F, 
+                         verbose=T)}, error = function(err2) {
+                           warning(paste0(obj_name, ": PCA failed again with ", pcs.compute2, " components with error: ", err, ". Maybe due to cell count: ", dim(seurat_obj@data)[2], ". Returning seurat object without PCA"))
+                           seurat_obj})
+      })}
+  args = list("seurat_obj"=list_seurat_obj, "obj_name"=names(list_seurat_obj))
+  outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_PCA2.txt")
+  list_seurat_obj<- safeParallel(fun=fun, args=args, outfile=outfile)
+}  
+######################################################################
+############################ JACKSTRAW ###############################
+######################################################################
+
+if (is.null(align_group_IDs) & is.null(align_specify)) {
+  message("Using Jackstraw resampling to determine significant principal components")
+  
+  pvalThreshold = 0.05
+  
+  additional_Gb = max(as.numeric(sapply(list_seurat_obj, FUN = function(x) object.size(x), simplify = T)))/1024^3
+  obj_size_Gb <- as.numeric(sum(sapply(ls(envir = .GlobalEnv), function(x) object.size(x=eval(parse(text=x)))))) / 1024^3
+  n_cores <- min(detectCores()%/%3, RAM_Gb_max %/% (obj_size_Gb + additional_Gb)-1)
+  n_cores <- min(n_cores, length(list_seurat_obj))
+  
+  list_PC_signif_idx <- lapply("X"=list_seurat_obj, function(seurat_obj) {
+    
+    PC_signif_idx <- rep(TRUE, ncol(seurat_obj@dr$pca@gene.loadings)) # default
+      
+    prop.freq <- max(0.016, round(4/length(seurat_obj@var.genes),3)) # to ensure we have at least 3 samples so the algorithm works well
+    # see https://github.com/satijalab/seurat/issues/5
+    pcs.compute = ncol(seurat_obj@dr$pca@gene.loadings)
+    seurat_obj <- JackStraw(object = seurat_obj,
+                            num.pc = n_PC,
+                            num.replicate = 350, 
+                            display.progress = T,
+                            do.par = T,
+                            num.cores = n_cores,
+                            prop.freq = prop.freq)
+    
+    pAll <- GetDimReduction(seurat_obj, reduction.type = "pca", slot = "jackstraw")@emperical.p.value
+  
+    pAll <- pAll[, 1:n_PC, drop = FALSE]
+    pAll <- as.data.frame(pAll)
+    pAll$Contig <- rownames(x = pAll)
+    pAll.l <- melt(data = pAll, id.vars = "Contig")
+    colnames(x = pAll.l) <- c("Contig", "PC", "Value")
+    
+    score.df <- NULL
+    
+    for (i in (1:pcs.compute)) {
+      
+      pc.score <- suppressWarnings(prop.test( 
+        x = c(length(x = which(x = pAll[, i] <= pvalThreshold)), floor(x = nrow(x = pAll) * pvalThreshold)),
+        n = c(nrow(pAll), nrow(pAll)))$p.val)
+      if (length(x = which(x = pAll[, i] <= pvalThreshold)) == 0) {
+        pc.score <- 1
+      }
+      
+      if (is.null(x = score.df)) {
+        score.df <- data.frame(PC = paste0("PC", i), Score = pc.score)
+      } else {
+        score.df <- rbind(score.df, data.frame(PC = paste0("PC",i), Score = pc.score))
+      }
+      
+    }
+    
+    PC_signif_idx <- score.df$Score < pvalThreshold
+    return(PC_signif_idx)
+  })
+} else{
+  list_PC_signif_idx <- lapply(1:length(list_seurat_obj), function(seurat_obj){
+    rep(TRUE, n_CC)
+  })
+}
+######################################################################
+############################ T-SNE ###################################
+######################################################################
+#save.image(file = paste0(dir_RObjects, prefix_data, "_", prefix_run, "_image.RData"))
+
+message("Computing t-SNE")
+
+fun =  function(seurat_obj, obj_name, PC_signif_idx) {
+  n_comp = if (is.null(align_group_IDs) & is.null(align_specify)) n_PC else n_CC
+  perplexity1 = min(30, min(n_comp,ncol(seurat_obj@data))%/%1.5)
+  tryCatch({RunTSNE(object = seurat_obj, 
+                    reduction.use = if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned", 
+                    dims.use = (1:n_comp)[PC_signif_idx], # no need to use all PCs for t-SNE
+                    do.fast=T,
+                    perplexity=perplexity1,
+                    check_duplicates=F)
+  }, error = function(err1) {
+    perplexity2 = min(30, min(n_comp,ncol(seurat_obj@data))%/%2.5)
+    warning(paste0(obj_name, ": RunTSNE failed with error: ", err1, ", using perplexity ", perplexity1, ". Maybe due to cell count: ", dim(seurat_obj@data)[2], ". Trying with perplexity ", perplexity2))
+    tryCatch({RunTSNE(object = seurat_obj, 
+                      reduction.use = if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned", 
+                      dims.use = (1:n_comp)[PC_signif_idx], # no need to use all PCs for t-SNE
+                      do.fast=T,
+                      perplexity = perplexity2,
+                      check_duplicates=F)
+    }, error= function(err2) {
+      warning(paste0("RunTSNE failed again with error ", err2, ", returning original seurat object"))
+      seurat_obj})
+    })
+  }
+outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_TSNE2.txt")
+args=list("seurat_obj"=list_seurat_obj,
+          "obj_name" = names(list_seurat_obj), 
+          "PC_signif_idx" = list_PC_signif_idx)
+list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
+
+######################################################################
+############################ FIND CLUSTERS ###########################
+######################################################################
+
+if (!is.null(res_primary)) {
+  
+  message("Computing clusters")
+  outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_FindClusters.txt")
+  reduction.type <- if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned"
+
+  if (!is.null(res_to_calc)) {
+    
+    list_seurat_obj <- mapply(function(seurat_obj,
+                                       PC_signif_idx) {
+      # Run FindClusters in parallel using different resolution parameter values
+
+      #idx=  if (reduction.type="pca") PC_signif_idx else rep(TRUE, ncol(seurat_obj@dr[[reduction.type]]@cell.embeddings)) # TODO: Also select CCs?
+
+      fun = function(res) { FindClusters(object = seurat_obj,
+                     reduction.type = reduction.type,
+                     dims.use = (1:ncol(seurat_obj@dr[[reduction.type]]@cell.embeddings))[PC_signif_idx],
+                     print.output = 0,
+                     save.SNN = T,
+                     resolution = res)}
+      args= list("X"=res_to_calc)
+      
+      list_seurat_obj_res <- safeParallel(fun=fun, args=args, outfile=outfile, seurat_obj=seurat_obj,reduction.type=reduction.type, PC_signif_idx=PC_signif_idx)
+                                 
+      # Save all the cluster assignments as meta data in the original seurat object
+      for (i in seq(1:length(res_to_calc))) {
+        seurat_obj <- AddMetaData(seurat_obj, list_seurat_obj_res[[i]]@ident, col.name = paste0("clust.res.", res_to_calc[i]))
+      }
+      # No need to have this massive list in session!
+      rm(list_seurat_obj_res)
+      
+      seurat_obj <- SetAllIdent(object = seurat_obj, id = paste0("clust.res.", res_primary))
+      
+      return(seurat_obj)
+    }, seurat_obj = list_seurat_obj, PC_signif_idx=list_PC_signif_idx, SIMPLIFY=F)
+
+  } else {
+    fun = function(seurat_obj, PC_signif_idx) {
+      #idx=  if (reduction.type="pca") PC_signif_idx else rep(TRUE, ncol(seurat_obj@dr[[reduction.type]]@cell.embeddings)) # TODO: Also select CCs?
+      FindClusters(object = seurat_obj,
+                  reduction.type = reduction.type,
+                  dims.use = (1:ncol(seurat_obj@dr[[reduction.type]]@cell.embeddings))[PC_signif_idx],
+                  print.output = 0,
+                  save.SNN = T,
+                  resolution = res_primary)
+      }
+    args = list("seurat_obj"=list_seurat_obj, "PC_signif_idx"=list_PC_signif_idx)
+    list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile, reduction.type=reduction.type, res_primary=res_primary)
+  }
+}
+######################################################################
 ####################### FIND CLUSTER MARKERS #########################
+######################################################################
 
-if (is.null(align_IDs)) {
+pvalThreshold=0.05
+if (!is.null(res_primary)){
   
-  list_list_markers <- lapply(list_seurat_obj, function(seurat_obj) {
-    clusters = names(table(seurat_obj@meta.data[[paste0("res.", res_primary)]]))
-    list_markers <- parLapply(cl, clusters, function(cluster) tryCatch({FindMarkers(seurat_obj,  
-                                                                                    do.print = T,
-                                                                                    ident.1 = cluster, 
-                                                                                    print.bar = T)}, 
-                                                                       error=function(err){
-                                                                         warning(paste0(cluster, ": FindMarkers failed with error "))
-                                                                         as.character(err)}))  
-  })
+  ######################## DIFFERENTIAL EXPRESSION #####################
   
-} else if (!is.null(align_IDs)) {
-  list_list_markers <- lapply(list_seurat_obj, function(seurat_obj) {
-    clusters = names(table(seurat_obj@meta.data[[paste0("res.", res_primary)]]))
-    list_markers <- parLapply(cl, clusters, function(cluster) tryCatch({FindConservedMarkers(seurat_obj,  
-                                                                                    do.print = T,
-                                                                                    ident.1 = cluster, 
-                                                                                    print.bar = T)}, # TODO:  do we need # grouping.var = sample_ID or align_ID ?
-                                                                       error=function(err){
-                                                                         warning(paste0(cluster, ": FindConservedMarkers failed with error "))
-                                                                         as.character(err)}))  
-  })
+  message("Computing differentially expressed genes as cluster markers")
   
+  outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_FindMarkers.txt")
+
+  if (is.null(align_group_IDs) & is.null(align_specify)) {
+    
+    # for each final seurat object, for each cluster, a dataframe of markers
+    
+    list_list_markers <- lapply(list_seurat_obj, function(seurat_obj) {
+        clusters = names(table(seurat_obj@meta.data[[grep(paste0("res.", res_primary), colnames(seurat_obj@meta.data))]]))
+        args = list("X"=clusters)
+        fun = function(cluster) {tryCatch({FindMarkers(seurat_obj,  
+                                  do.print = T,
+                                  ident.1 = cluster, 
+                                  print.bar = T)}, 
+                                  error = function(err) {
+                                    NA_character_
+                                  })
+                                }
+        list_markers=NULL
+        list_markers <- tryCatch({safeParallel(fun=fun, args=args, simplify=F, outfile=outfile, seurat_obj=seurat_obj, res_primary=res_primary)}, 
+                                 error = function(err) {
+                                   lapply(X=clusters, FUN = fun)
+                                 })
+        })
+    
+    
+  } else if (!is.null(align_group_IDs) | !is.null(align_specify)) {
+    # for each final seurat object, for each cluster, a dataframe of conserved markers
+    list_list_markers <- lapply(list_seurat_obj, function(seurat_obj) {
+        clusters = names(table(seurat_obj@meta.data[[grep(paste0("res.", res_primary), colnames(seurat_obj@meta.data))]]))
+        args = list("X"=clusters)
+        fun =  function(cluster) {tryCatch({FindConservedMarkers(seurat_obj,  
+                                                       do.print = T,
+                                                       ident.1 = cluster, 
+                                                       grouping.var = "sample_ID",
+                                                       print.bar = T)}, 
+                                           error = function(err) {
+                                             message(paste0("FindConservedMarkers failed for cluster ", cluster," with the error: ", err))
+                                             NA_character_
+                                           })
+          }
+        
   
+        list_markers <- NULL
+        list_markers <- tryCatch({safeParallel(fun=fun, args=args, outfile=outfile, simplify=F, seurat_obj=seurat_obj, res_primary=res_primary)}, 
+                                 error = function(err) {lapply(X = clusters, FUN = fun)})
+        names(list_markers) = clusters
+        # where FindConservedMarkers failed, subset the data and find markers in individual samples, then merge the dataframes
+        idx_NA <- is.na(list_markers)
+        
+        if (sum(idx_NA)>0) {
+          
+          clusters = names(table(seurat_obj@meta.data[[grep(paste0("res.", res_primary), colnames(seurat_obj@meta.data))]]))[idx_NA]
+          
+          seurat_obj <- SetAllIdent(object = seurat_obj, id = "sample_ID")
+          
+          samples_seurat_obj <- lapply(X=names(table(seurat_obj@meta.data$sample_ID)), FUN={
+            function(sample_ID) {
+                seurat_obj_sub <- SubsetData(object = seurat_obj, 
+                                             ident.use = sample_ID, 
+                                             do.center = F, 
+                                             do.scale = F, 
+                                             do.clean = F, 
+                                             subset.raw = T)
+                seurat_obj_sub@raw.data <- seurat_obj_sub@scale.data <- NULL # delete these slots to save space
+                seurat_obj_sub <- SetAllIdent(object = seurat_obj_sub, id =paste0("clust.res.", res_primary) )
+                return(seurat_obj_sub)
+              }
+            })
+          
+          # find markers within each sample
+          samples_clusters_markers <- lapply(samples_seurat_obj, function(seurat_obj_sub) {
+            # use the clusters from the aligned seurat object, not the sample ID subsets. If a cluster doesn't exist in a subsets we'll just get NA
+            args = list("X"=clusters)
+            sample_ID = unique(seurat_obj_sub@meta.data$sample_ID)
+            fun =  function(cluster) {
+              markers <- tryCatch({FindMarkers(seurat_obj_sub,  
+                          do.print = T,
+                          ident.1 = cluster, 
+                          print.bar = T)}, 
+                       error=function(err) {
+                         NA_character_
+                         })
+              
+              if (!all(is.na(markers))) colnames(markers) <- paste0(sample_ID, "_", colnames(markers))
+              return(markers)
+            }
+            
+            #clusters_markers <- lapply(X = clusters, FUN = fun)
+            clusters_markers <- tryCatch({safeParallel(fun=fun, args=args, outfile=outfile, simplify=F, seurat_obj_sub=seurat_obj_sub,res_primary=res_primary)}, 
+                                     error = function(err) {lapply(X = clusters, FUN = fun)})
+            
+            return(clusters_markers)
+          })
+          
+          # clear space
+          rm(samples_seurat_obj)
+          
+          # name the markers by cluster and by sample_ID
+          samples_clusters_markers <- lapply("X"=samples_clusters_markers, FUN=function(clusters_markers) {
+            # use the clusters from the aligned seurat object, not the sample ID subsets. If a cluster doesn't exist in a subsets we'll just get name the NA
+            names(clusters_markers) <- clusters
+            return(clusters_markers)
+          })
+          
+          # do full_join across seurat_objects
+          clusters_markers_joined <- lapply(X = clusters, FUN=function(cluster) {
+            # for each cluster, get the markers
+            clusters_markers <- lapply(samples_clusters_markers, function(clusters_markers) {
+              markers <- clusters_markers[[cluster]]
+              if (!all(is.na(markers))) {
+                markers <- data.frame("genes"= as.character(rownames(markers)),markers) #i.e if not NA
+              } 
+              return(markers)
+            })  
+            
+            fun1 <- function(x,y) {
+              if (all(is.na(x))) {
+                if (all(is.na(y))) {
+                  NA_character_
+                } else {
+                  return(y)
+                }
+              } else {
+                if (all(is.na(y))) {
+                  return(x) 
+                } else {
+                  out <- dplyr::full_join(x,y, by="genes")
+                  colnames(out) <- gsub(pattern = "^X", replacement= "", x =  colnames(out), ignore.case = F)
+                  return(out)
+                }
+              }
+            }
+            markers_joined <- Reduce(f = fun1, x = clusters_markers)
+            return(markers_joined)
+          })
+          
+          list_markers[idx_NA] <- clusters_markers_joined
+          return(list_markers)
+        } # end of if (sum(idx_NA)>0) {
+        
+        
+      })
+    
+    # order the markers data.frames by the number of p_val significant scores
+    list_list_markers <- lapply("X"=list_list_markers, FUN= function(list_markers) {
+      lapply("X"=list_markers, FUN=function(markers) {
+        if (!all(is.na(markers))) {
+          idx_col_pval <- grep("p_val$", colnames(markers))
+          row_signif_scores <- apply(X = markers[,idx_col_pval], MARGIN = 1, FUN = function(row) {
+            sum(as.numeric(na.omit(row)) < pvalThreshold)
+          })
+          markers <- markers[order(row_signif_scores, decreasing=T),]
+          return(markers)
+        }
+      })
+    })
+    
+    }
+
+  #Name the nested list entries
+  list_list_markers <- mapply(function(list_markers, seurat_obj) {
+    names(list_markers) <- names(table(seurat_obj@meta.data[[grep(paste0("res.", res_primary), colnames(seurat_obj@meta.data))]]))
+    list_markers
+  }, list_markers = list_list_markers, seurat_obj = list_seurat_obj, SIMPLIFY = F)
+
 }
 
-# Name the nested list entries
-
-list_list_markers <- clusterMap(cl, function(list_markers, seurat_obj) {
-  names(list_markers) <- names(table(seurat_obj@meta.data[[paste0("res.", res_primary)]]))
-  list_markers
-}, list_markers = list_list_markers, seurat_obj = list_seurat_obj, SIMPLIFY=F, .scheduling=c("dynamic"))
-
-
-stopCluster(cl)
-
-# name the outer list entries
-names(list_list_markers) <- names(list_seurat_obj)
 
 ######################################################################
 ######################### IDENTIFY CELLTYPES #########################
 ######################################################################
 
-# TODO
+# TODO: use scmap or other tool to align to a given dataset
 
 ######################################################################
 ############################# PLOTS #################################
 ######################################################################
 
-cl <- makeCluster(n_cores, type = "FORK", outfile=paste0(dir_log, "DrawPlots.txt"))
-
 ########################## PLOT T-SNE ################################
 
-invisible(clusterMap(cl, function(seurat_obj, name) {
+message("Plotting t-SNE")
+invisible(mapply(function(seurat_obj, name) {
   p1 <- TSNEPlot(seurat_obj, do.return = T, pt.size = 1, group.by = "sample_ID", no.legend=F, plot.title=paste0(name, " by sample"))
-  ggsave(p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_tSNEPlot_sample.pdf"), w=8, h=8)
-  p2 <- TSNEPlot(seurat_obj, do.return = T, do.label = T, pt.size = 1, no.legend = F, plot.title = paste0(name, " by cluster")) # + xlab("t-SNE 1") + ylab("t-SNE 2"
-  ggsave(p2, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_tSNEPlot_clust.pdf"), w=8, h=8)
+  ggsave(p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_tSNEPlot_sample.pdf"), w=10, h=10)
+  if (!is.null(res_primary)) {
+    p2 <- TSNEPlot(seurat_obj, do.return = T, do.label = T, pt.size = 1, no.legend = F, plot.title = paste0(name, " by cluster")) # + xlab("t-SNE 1") + ylab("t-SNE 2"
+    ggsave(p2, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_tSNEPlot_clust.pdf"), w=10, h=10)
+  }
+  # p1 <- TSNEPlot(seurat_obj, do.return = T, pt.size = 1, group.by = "condition", no.legend=F, plot.title=paste0(name, " by condition"))
+  # ggsave(p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_tSNEPlot_condition.pdf"), w=10, h=10)
+  
 }, seurat_obj = list_seurat_obj,
 name = names(list_seurat_obj),
-SIMPLIFY=F,
-.scheduling = c("dynamic")
+SIMPLIFY=F
 ))
 
+# list_seurat_obj <- lapply(list_seurat_obj, function(seurat_obj) {
+#   metadata <- ifelse(grepl("GF", seurat_obj@meta.data$sample_ID), yes="GF", no = "CR")
+#   metadata <- data.frame("condition" = metadata, row.names = rownames(seurat_obj@meta.data))
+#   AddMetaData(seurat_obj, metadata)
+# })
 ############################## FEATUREPLOTS ##############################
 
+message("Making featureplots")
 if (!is.null(feats_to_plot)) {
-
-  invisible(clusterMap(cl, function(seurat_obj, name) {
+  invisible(mapply(function(seurat_obj, name) {
     if (feats_plot_separate) {
       lapply(feats_to_plot, function(feature) {
-        tryCatch({
-        pdf(file = paste0(dir_plots, prefix_data,"_", prefix_run,"_", name, "_", feature,"_featurePlot.pdf"), w=8, h=8)
-        FeaturePlot(seurat_obj, features.plot = feature, pt.size = 1, no.legend = F)
-        }, error = function(err) warning(paste0(name, ": FeaturePlot failed for ", feature, ". Maybe it wasn't found? Error message: ", err)))
-        try(dev.off())
+        if (any(grepl(feature, rownames(seurat_obj@data))) | any(grepl(feature, colnames(seurat_obj@meta.data)))) {
+          tryCatch({
+            #pdf(file = paste0(dir_plots, prefix_data,"_", prefix_run,"_", name, "_", feature,"_featurePlot.pdf"), w=8, h=8)
+            FeaturePlot(seurat_obj, features.plot = feature, cols.use=c("grey95", "blue"), pt.size = 1, no.legend = F)
+            ggsave(filename =  paste0(dir_plots, prefix_data,"_", prefix_run,"_", name, "_", feature,"_featurePlot.pdf"), w=8, h=8)
+          }, error = function(err) warning(paste0(name, ": FeaturePlot failed with error ", err)))
+          #try(dev.off())
+        } else { 
+          warning(paste0(feature, " not found in ", name, " data"))}
         #ggsave(p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run,"_", name, "_", feature,"_featurePlot.pdf"), w=8, h=8)
       })
     } else {
-      p1 <- FeaturePlot(seurat_obj, features.plot = feats_to_plot[1:2], overlay=T,  pt.size = 1, no.legend = F,do.return = T)
-      ggsave(p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run,"_", name, "_", paste0(feats_to_plot, collapse = "_"), "_featurePlot.pdf"), w=8, h=8)
+      feats_found_idx <- sapply(feats_to_plot, function(feature) any(grepl(feature, rownames(seurat_obj@data))))
+      if (all(feats_found_idx)) {
+        tryCatch({
+          FeaturePlot(seurat_obj, features.plot = feats_to_plot[1:2], cols.use=c("grey92","blue", "violetred1"), overlay=T,  pt.size = 1, no.legend = F)
+          ggsave(filename =  paste0(dir_plots, prefix_data,"_",prefix_run,"_", name, "_", paste0(feats_to_plot, collapse = "_"), "_featurePlot.pdf"), w=8, h=8)
+        }, error = function(err) warning(paste0(name, ": FeaturePlot failed with error ", err)))
+      } else {
+        warning(paste0("FeaturePlot failed because ", paste0(feats_to_plot[!feats_found_idx], collapse = " ") , " weren't found in ", name))
+      }
     }
   }, 
   seurat_obj = list_seurat_obj,
   name = names(list_seurat_obj),
-  SIMPLIFY=F,
-  .scheduling = c("dynamic")
-  ))
-
+  SIMPLIFY=F))
 }
-
-stopCluster(cl)
 
 ######################################################################
 ########################## OUTPUT TABLES, ROBJECTS ###################
 ######################################################################
+if (!is.null(res_primary)) {
+  ############################## CLUSTER GENE MARKERS ##################
+  
+  message("Writing out gene markers")
+  
+  invisible(mapply(function(list_markers, name) {
+    #if (!is.null(align_specify) | is.null(align_group_IDs)) { 
+      mapply(function(markers, cluster) {
+        write.csv(markers, file=paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_", cluster, "_markers.csv"), quote = F, row.names=T)
+      }, 
+      markers = list_markers, 
+      cluster=names(list_markers), 
+      SIMPLIFY=F)
 
-
-############################## CLUSTER GENE MARKERS ##################
-
-cl <- makeCluster(n_cores, type = "FORK", outfile=paste0(dir_log, "outputTables_RObjects.txt"))
-
-invisible(mapply(function(list_markers, name) {
-                     clusterMap(cl, function(markers, cluster) {
-                       write.csv(markers, file=paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_", cluster, "_markers.csv"), quote = F, row.names=T)
-                       }, 
-                       markers = list_markers, 
-                       cluster=names(list_markers), 
-                       SIMPLIFY=F, 
-                       .scheduling= c("dynamic"))
   }, 
- list_markers = list_list_markers, 
- name = names(list_seurat_obj), SIMPLIFY=F))
-
+  list_markers = list_list_markers, 
+  name = names(list_seurat_obj), SIMPLIFY=F))
+}
 ########################## SAVE SEURAT OBJECTS #######################
 
-clusterMap(cl, function(seurat_obj, name) {
-  invisible(saveRDS(seurat_obj, file = paste0(dir_RObjects, prefix_data, "_", prefix_run, "_", name, "_seurat_obj.RDS"), compress = "gzip"))
-}, 
-seurat_obj = list_seurat_obj, 
-name = names(list_seurat_obj), 
-SIMPLIFY=F, 
-.scheduling= c("dynamic"))
+outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_outputTables_RObjects.txt")
+args=list("seurat_obj" = list_seurat_obj, 
+          "name" = names(list_seurat_obj))
+fun = function(seurat_obj, name) {invisible(saveRDS(seurat_obj, file = paste0(dir_RObjects, prefix_data, "_", prefix_run, "_", name, "_seurat_obj.RDS.gz"), compress = "gzip"))}
+invisible(safeParallel(fun=fun, args=args, outfile=outfile))
 
-stopCluster(cl)
+
+########################## SAVE OPTIONS ##############################
+
+params_run <- opt# all the user options/defaults
+params_run <- c("data"=prefix_data, "run"=prefix_run, params_run)
+matrix(unlist(params_run), nrow=1) %>% as.data.frame(row.names=NULL, stringsAsFactors=F) -> params_run_df
+colnames(params_run_df) <- names(params_run)
+params_run_path = sprintf("%s%s_%s_params_run.tab", dir_log, prefix_data, prefix_run)
+append_params_run = F#file.exists(params_run_path) # NB: if left as NULL, they won't get included!
+write.table(params_run_df, 
+            file=params_run_path, 
+            quote = F, 
+            sep = "\t", 
+            row.names=F, 
+            append = append_params_run, 
+            col.names = !append_params_run)
 
 ######################################################################
 ############################### WRAP UP ##############################
 ######################################################################
-
-save.image(paste0(dir_scratch, prefix_data, "_", prefix_run, "_session_image", flag_date), compress = "gzip")
+#message("Saving session image")
+#save.image(paste0(dir_scratch, prefix_data, "_", prefix_run, "_session_image", flag_date, ".RData"), compress = "gzip")
 
 message("Script done!")
