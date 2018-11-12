@@ -558,7 +558,7 @@ if (rm_sc_multiplets) {
 ############################# MERGE ##################################
 ######################################################################
 
-if (!is.null(merge_group_IDs) | !is.null(merge_specify)) {
+if ((!is.null(merge_group_IDs) | !is.null(merge_specify)) & length(list_seurat_obj)>1) {
   
   list_seurat_merged = NULL 
   
@@ -642,7 +642,7 @@ invisible({gc(); R.utils::gcDLLs()})
 ######################### DO ALIGNMENT ###############################
 ######################################################################
 
-if (!is.null(align_group_IDs) | !is.null(align_specify)) {
+if ((!is.null(align_group_IDs) | !is.null(align_specify)) & length(list_seurat_obj)>1) {
   
   # make extra sure that the cells have different names
   for (i in 1:length(list_seurat_obj)) {

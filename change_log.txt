@@ -1,0 +1,26 @@
+# single cell RNA-seq initial processing pipeline
+* author Jonatan Thompson, Pers Lab, rkm916@ku.dk
+
+v0.2 12-11-2018
+### Added 
+* Specify names of samples to align or merge
+* Filter on nGene or nUMI and specify prop.mito and prop.ribo
+* Plot Malat1 by default as a useful marker for intact neuronal cells
+
+### Fixed
+* alignment with 2 group_IDs: mistakenly called RunCCA rather than multiCCA even if number of objects within groups could exceed 2.
+* brackets mean that RunPCA and RunTSNE were selecting half or a third of desired parameters, e..g half of p_comp.
+* Set check_duplicated =F in RunTSNE to avoid error due to identical cells
+* added safeParallel to prevent parallel-related errors
+* make sure cell names are unique between sets before merging or aligning
+* check length of list_seurat_obj before mergin or aligning
+* changed label for fake cells in doubletFinder from 'X' to avoid confusion with cellnames that have X in them
+
+### changed
+* rewrite flow of merge logic to reduce repetition and correct errors
+* rewrite flow of align logic to reduce repetition and correct errors
+* changed doubletFinder to label outliers rather than fixed number of cells as outliers
+
+v0.1 01-10-2018
+### Added
+*General structure
