@@ -1,0 +1,76 @@
+---
+title: "ribosomal mitochrondrial gene expression diagnostics"
+output: html_notebook
+---
+
+```{r}
+source(file="/projects/jonatan/tools/functions-src/utility_functions.R")
+source(file="/projects/jonatan/tools/functions-src/functions_sc.R")
+```
+
+```{r}
+dir_out <- "/projects/jonatan/tools/seurat-src/diagnostics/"
+prefix_data = "germfree_colon_creme_6"
+```
+
+```{r}
+ipak(c("Seurat", "corrplot", "ggplot2"))
+```
+
+```{r}
+seurat_obj <- load_obj("/projects/jonatan/tmp-germfree/RObjects/germfree_seurat_6_creme_colon_seurat_obj.RDS.gz")
+```
+
+```{r}
+mito.genes <- grepl(pattern = "^mt-", x = rownames(seurat_obj@raw.data), ignore.case=T)
+ribo.genes <- grepl(pattern = "^Rp[sl][[:digit:]]", x = rownames(seurat_obj@raw.data), ignore.case=T)
+colSums_tmp <- colSums(x = seurat_obj@raw.data)
+```
+
+```{r}
+metadata <- data.frame(percent.mito=colSums(x = seurat_obj@raw.data[mito.genes,])/colSums_tmp, percent.ribo = colSums(x = seurat_obj@raw.data[ribo.genes,])/colSums_tmp, rownames=colnames(seurat_obj@raw.data))
+
+# Add nUMI
+metadata[["nUMI"]] <- colSums(seurat_obj@raw.data)
+
+# Add sample IDs
+rownames(metadata) <- colnames(seurat_obj@raw.data)
+
+## percent.mito, percent.ribo
+ggplot(metadata, aes(percent.mito, percent.ribo)) + 
+  geom_point(shape=1) + 
+  #geom_vline(xintercept=percent.mito_max) +
+  #geom_hline(yintercept = percent.ribo_max) + 
+  scale_y_continuous(breaks = seq(from=0.1, to=0.9, by=0.1)) +
+  scale_x_continuous(breaks = seq(from=0.1, to=0.9, by=0.1)) + 
+  ggtitle("prop. ribo vs. prop. mito")
+ggsave(filename =  paste0(dir_out,prefix_data,"_mito_ribo_scatter.pdf"), w=12, h=8)
+
+```
+
+# Plot mito-mito, ribo-ribo and mito-ribo count correlations across cells  
+```{r}
+corr_mito_mito <- cor(x = t(as.matrix(seurat_obj@raw.data[mito.genes,])), use = "everything")
+corr_ribo_ribo <- cor(x = t(as.matrix(seurat_obj@raw.data[ribo.genes,])), use = "everything")
+corr_mito_ribo <- cor(x = t(as.matrix(seurat_obj@raw.data[mito.genes,])), y = t(as.matrix(seurat_obj@raw.data[ribo.genes,])), use = "everything")
+```
+
+```{r}
+pdf(paste0(dir_out, prefix_data, "_mito_genes_corr.pdf"), height=10, width=10)
+corrplot::corrplot(corr = corr_mito_mito, type = "upper", diag=F, method="color",title="mito genes correlation", order=c("original"), tl.cex=0.8)
+dev.off()
+pdf(paste0(dir_out, prefix_data, "_ribo_genes_corr.pdf"), height=15, width=15)
+corrplot::corrplot(corr = corr_ribo_ribo, type = "upper", diag=F, method="color",title="ribo genes correlation", order=c("original"), tl.cex=0.8)
+dev.off()
+pdf(paste0(dir_out, prefix_data, "_mito_ribo_genes_corr.pdf"), height=10, width=15)
+corrplot::corrplot(corr = corr_mito_ribo,  type = "upper", diag=F, method="color",title="mito-ribo genes correlation", order=c("original"), tl.cex=0.8)
+dev.off()
+```
+
+Preliminary conclusions from germfree data 
+
+* some mitochrondrial genes are very highly correlated (~0.9).
+  * only mt_Atp8 and mt−Nd6 are relatively uncorrelated with the other mito genes
+  * mt−Nd3 and mt−Nd4l are moderately correlated (~0.6)
+* a handful of ribosomal genes are very highly correlated with the cluster of highly correlated mito genes
+

@@ -1,0 +1,292 @@
+---
+title: 'Seurat object annotate, plot and export'
+author: "Jon Thompson, Pascal N. Timshel, Pers lab"
+date: "`r Sys.time()`" 
+output:
+  html_notebook: 
+    df_print: paged
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  html_document:
+    df_print: paged
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. Execute a chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+When saved, the workbook outputs a html file.
+
+# Annotate cell clusters using Pers Lab markers
+
+# Setup
+
+## Clear the workspace and load libraries
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(dplyr))
+suppressMessages(library(Matrix))
+suppressMessages(library(tidyr))
+suppressMessages(library(flashClust))
+suppressMessages(library(xlsx))
+suppressMessages(library(cowplot))
+suppressMessages(library(tidyverse))
+suppressMessages(library(parallel))
+```
+
+## Set constants
+
+```{r}
+dir.arclira_src <- "/projects/timshel/sc-arc_lira/src"
+dir.pers_lab_sc_lib <- "/projects/timshel/git/perslab-sc-library"
+source(sprintf("%s/constants-sample_meta_data.R", dir.arclira_src)) # loads sample meta-data
+source(sprintf("%s/constants-gene_markers_data.R", dir.arclira_src)) # loads gene markers 
+source(sprintf("%s/constants-cell_type_annotations.R", dir.arclira_src)) # loads cell type annotations
+source(sprintf("%s/seurat_functions/load_functions.R", dir.pers_lab_sc_lib)) # load Pers lab/Timshel single-cell library
+source(sprintf("%s/seurat_functions/plot_dotplot_celltype_highlight.R", dir.pers_lab_sc_lib)) # DotPlot_Timshell function
+
+df.markers.perslab
+
+dir.project = "/projects/jonatan/tmp-holst-hsl/" # needs to have '/Robjects' and '/tables' subdirectories
+dir.plots = paste0(dir.project,"plots/")
+dir.tables = paste0(dir.project,"tables/")
+
+flag.sc = "campbell"
+flag.date.in = "180220"
+flag.date.out = "180223"
+input.prefix <- "seurat_processing"
+output.prefix <- "seurat_annotate_plot_export"
+
+path.data = "/data/pub-perslab/campbell-nn-2017/geo/GSE93374_Merged_all_020816_DGE.txt.gz"
+
+# See 20180220_Seurat_analysis.Rmd. TODO: instead source from a common separate script.
+res.primary <- 0.8 # the primary clustering resolution - will be used for cluster marker identification. 
+res2calculate <- c(0.4, 0.6, 0.8, 1.2, 1.6, 2, 4, 10) # Alternative resolutions used in FindClusters. OBS: res.primary must be included in res2calculate 
+
+N_PC <- 40 # number of Principal Components to use in RunPCA 
+N_CORES_MAX <- 10 # max number of cores to use for parallel computing
+```
+
+## Load Seurat objects 
+
+```{r}
+load(sprintf("%sRobjects/%s_%s_%s.Rdata", dir.project, flag.date.in, flag.sc, input.prefix)) 
+load(sprintf("%sRobjects/%s_%s_%s_sub.Rdata", dir.project, flag.date.out, flag.sc, output.prefix)) 
+
+```
+
+# Annotating and plotting 
+
+## Plot T-SNE, colour clusters computed at different resolutions
+```{r, fig.height=10, fig.width=10}
+for (res in res2calculate){
+   TSNEPlot(object = SetAllIdent(seurat_obj, id=as.character(res)), do.hover=F, do.identify=F, do.label=T, no.legend=T)
+}
+```
+
+## Convert select character/factor metadata columns to indicator variable columns
+
+```{r}
+
+lapply(seurat_obj@meta.data[-c(1,2,3,4,5,14)], function(x) levels(x)) # Check out the relevant metadata we might want to visualise
+
+# Add interesting metadata as new indicator variable columns 
+seurat_obj <- SeuratFactorToIndicator(seurat_obj, list("X9.clust_all_micro","X10.clust_neurons"), list(c("s30","s31","s33", "s34", "s35","s36"),c("n12","n13")))
+
+```
+
+## Plot metadata as features
+
+```{r, fig.height=18, fig.width=12}
+FeaturePlot(seurat_obj, features.plot = c("n12", "n13", "s30", "s31", "s33", "s34", "s35", "s36"), cols.use=c("lightgrey","blue"), no.legend=T, nCol=2)
+```
+
+## Make feature plots for genes of interest
+
+```{r, fig.width=10, fig.height=10}
+# Make marker plots for selected genes 
+
+genes <- c("Rbfox3", "Snhg11", "Meg3", "Malat1")
+
+FeaturePlot(object = seurat_obj, features.plot = genes, cols.use = c("grey", "blue"), overlay=F, reduction.use= "tsne", do.hover=F)
+
+```
+
+
+============GOT TO HERE============
+
+
+
+## Annotate clusters using Pers lab markers
+
+```{r}
+
+# TODO: Make this work for all different resolutions 
+
+# Create dot plot
+df.marker.panel.to.plot <- df.markers.perslab %>% filter(marker_gene_list_name=="Hypothalamus")
+p_grid <- DotPlot_timshel(object=seurat_obj, genes.plot=unique(df.marker.panel.to.plot$gene_name), 
+                          plot.legend = TRUE, x.lab.rot=T, do.return=T, 
+                          df.marker.panel.to.plot=df.marker.panel.to.plot)
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_dotplot_markersperslab_nolab.pdf"), w=12, h=8)
+
+# Assign cell types to clusters based on the genes they express
+cell_type_numbers <- 0: 
+cell_type_assignments <- c("Neuron1",
+         "Neuron2",
+         "Tanycyte1",
+         "Neuron3",
+         "Neuron4",
+         "Tanycyte2",
+         "Neuron5",
+         "Neuron6",
+         "Neuron7", 
+         "Tanycyte3", 
+         "Oligodentrocyte1",
+         "Oligodendrocyte2",                          
+         "Endothial1", 
+         "Microglia-1 or 2", # Note also Ptprc expression is high among some -> Macrophage or Lymphocyte?
+         "Unclear",
+         "Endothial2", 
+         "Vascular and leptomeningial / Pericyte - mural",
+         "Oligodendrocyte3",
+         "Astrocyte1")
+cell_type_mapped <- plyr::mapvalues(x=seurat_obj@ident, from=cell_type_numbers, to=cell_type_assignments)
+seurat_obj@ident <- cell_type_mapped
+
+
+seurat_obj <- StashIdent(seurat_obj, save.name = "annotation_perslab")
+TSNEPlot(SetAllIdent(seurat_obj, id="annotation_perslab"), do.label=T, no.legend = TRUE)
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_tsneplot_markersperslab.pdf"),w=6, h=4)
+
+TSNEPlot(SetAllIdent(seurat_obj, id="annotation_perslab"), do.label=T, no.legend = TRUE, do.hover=T)
+
+p_grid <- DotPlot_timshel(object=SetAllIdent(seurat_obj, id="annotation"), genes.plot=unique(df.marker.panel.to.plot$gene_name), 
+                          plot.legend = TRUE, x.lab.rot=T, do.return=T, 
+                          df.marker.panel.to.plot=df.marker.panel.to.plot)
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_dotplot_markersperslab.pdf"), w=15, h=10)
+```
+
+# Data exploration - post cell type annotation
+
+## Find cluster marker genes (unsupervised)
+
+...
+
+## Find specific cell type marker genes (supervised)
+```{r}
+
+#neuron-specific genes
+FeaturePlot(object = seurat_obj, features.plot = c("Syn1", "Syn2", "Eno2", "Tubb3", "Syp"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_neuronalmarkers.pdf"), w=10, h=10)
+
+#astrocyte-specific genes
+# Glul - Glutamine synthetase - metabolic enzyme in astrocytes which will give cytosolic labeling
+# Slc1a2 - Glt-1 - glutamate transporter primarily expressed by astrocytes
+# Slc1a3 - GLAST - glutamate transporter primarily expressed by astrocytes
+# Aldh1l1 - supposed to be one of the best astrocyte specific genes
+# S100b - astrocyte specific cytosolic protein.
+FeaturePlot(object = seurat_obj, features.plot = c("Gfap", "Glul", "Slc1a2", "Slc1a3", "Aldh1l1", "S100b"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_astrocytemarkers.pdf"), w=10, h=10)
+
+# oligodendrocytes
+FeaturePlot(object = seurat_obj, features.plot = c("Mag"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_oligomarkers.pdf"), w=10/2, h=10/3)
+
+# endothelial
+FeaturePlot(object = seurat_obj, features.plot = c("Slco1c1"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_endothelialmarkers.pdf"), w=10/2, h=10/3)
+
+# Tanocytes
+FeaturePlot(object = seurat_obj, features.plot = c("Rax", "Crym"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_tanycytemarkers.pdf"), w=10, h=10/3)
+
+# Pars tuberalis
+FeaturePlot(object = seurat_obj, features.plot = c("Timeless", "Cck"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_parstuberalismarkers.pdf"), w=10, h=10/3)
+
+# Mural cells
+FeaturePlot(object = seurat_obj, features.plot = c("Slco1c1", "Mustn1", "Cspg4"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_muralmarkers.pdf"), w=10, h=(10/3)*2)
+
+# Ependymocyte
+FeaturePlot(object = seurat_obj, features.plot = c("Ccdc153"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_ependymocytemarkers.pdf"), w=10/2, h=10/3)
+
+# Peripheral vascular macrophages and microglia
+FeaturePlot(object = seurat_obj, features.plot = c("Aif1"), cols.use = c("grey", "blue"), reduction.use = "tsne")
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_microgliamarkers.pdf"), w=10/2, h=10/3)
+```
+
+## Lipases Gene plots
+```{r}
+# all lipids - except Lipe and not found genes
+lipase_genes <- c("Dagla", "Daglb", "Lipa", "Lipe", "Lipg", "Liph", "Lpl", "Mgll", "Pnlip", "Pnpla2", "Pnpla3")
+FeaturePlot(object = seurat_obj, features.plot = lipase_genes, cols.use = c("grey", "blue"), reduction.use = "tsne", pt.size = 1)
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_lipases.pdf"), w=16, h=12)
+
+#Lipe
+FeaturePlot(object = seurat_obj, features.plot = "Lipe", cols.use = c("grey", "blue"), reduction.use = "tsne", pt.size = 1)
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_genes_lipe.pdf"), w=4, h=3)
+```
+
+
+## Violin plots of genes of interest
+```{r}
+VlnPlot(seurat_obj, lipase_genes, group.by="annotation_perslab",  y.log = F,  x.lab.rot=T)
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_vln_tpm_lipases.pdf"), w=12, h=12)
+
+VlnPlot(seurat_obj, lipase_genes, group.by="annotation_perslab",  y.log = F,  x.lab.rot=T, use.raw=T)
+ggsave(paste0(dir.plots,flag.date,"_",flag.sc,"_vln_count_lipases.pdf"), w=12, h=12)
+```
+
+## Extract mean and sd for all lipases (not in log space)
+```{r}
+j <- data.frame(t(exp(as.matrix(seurat_obj@data[lipase_genes,]))),ident=seurat_obj@ident)
+sum_stats = data.frame(mean = aggregate(j[,-which(names(j) == "ident")],list(j$ident),mean), 
+              sd=aggregate(j[,-which(names(j) == "ident")],list(j$ident),sd) )
+write.table(t(sum_stats),paste0(dir.tables,flag.date,"_",flag.sc,"_norm_countsper10K_lipases.csv"), row.names=T, col.names=F,quote=F,sep=',')
+```
+
+# Export data to Excel
+
+## Annotate clusters using Pers Lab markers
+```{r}
+
+df.cluster_annotation <- data.frame(cluster=cell_type_numbers, annotation=cell_type_assignments)
+head(df.cluster_annotation)
+
+```
+
+## Start Excel
+
+```{r}
+xlsx.workbook <- createWorkbook(creator="JThompson") # start excel
+names(xlsx.workbook)
+```
+
+## Marker genes
+
+```{r}
+# Pick top differentially expressed genes as markers
+
+de_genes(df.cluster_markers, 
+         colname_cluster="cluster",
+         excel_wb=xlsx.workbook, df.cluster_annotation = df.cluster_annotation, sheet_name="cluster_markers")
+de_genes_wide(df.cluster_markers, n_top_genes=75, 
+              df.cluster_annotation=df.cluster_annotation, colname_cluster="cluster",
+              excel_wb=xlsx.workbook, sheet_name="cluster_markers.top")
+```
+
+## Average gene cluster expression
+
+```{r}
+
+df.avg_expr <- average_expression(arc_nu_sub_adcy3, colname_cluster_ident="annotation", 
+                                  do.excel_export=T, excel_wb=xlsx.workbook, sheet_name="avg_expr") 
+
+```
