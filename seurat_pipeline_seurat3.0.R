@@ -1,8 +1,8 @@
 # Seurat pipeline
 # Usage: 
 # export R_MAX_NUM_DLLS=999 # optional
-# time Rscript /projects/jonatan/tools/seurat-src/seurat_pipeline.R --dirs_project_10x 'c("/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/247L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/249L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/255L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/260L-5000_cells/")' --dir_out /projects/jonatan/tmp-liver/ --flag_datatype sc --flag_organism hsapiens --prefix_data liver  --prefix_run seurat_3_align  --use_filtered_gene_bc_matrices F --nUMI_min 500  --nUMI_max 15000 --nGene_min 100 --nGene_max 10000 --percent.mito_max Inf --percent.ribo_max Inf --rm_sc_multiplets T --n_comp 75 --align_group_IDs "c('all')" --feats_to_plot "c('percent.mito','percent.ribo','nUMI','nGene','MALAT1')"
-# time Rscript /projects/jonatan/tools/seurat-src/seurat_pipeline.R --dirs_project_10x 'c("/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/")' --dir_out /projects/jonatan/tmp-liver/ --flag_organism hsapiens --prefix_data liver  --prefix_run seurat_3_merge  --use_filtered_gene_bc_matrices F --nUMI_min 500  --nUMI_max 15000 --nGene_min 100 --nGene_max 10000 --percent.mito_max Inf --percent.ribo_max Inf --rm_sc_multiplets T --n_comp 75 --merge_specify "list(sc=c('245L',247L','249L'),sn=c('255L',259L','260L'))" --feats_to_plot "c('percent.mito','percent.ribo','nUMI','nGene','MALAT1')" 
+# time Rscript /projects/jonatan/tools/seurat-src/seurat_pipeline.R --dirs_project_10x 'c("/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/247L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/249L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/255L-5000_cells/","/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/260L-5000_cells/")' --dir_out /projects/jonatan/tmp-liver/ --flag_datatype sc --flag_organism hsapiens --prefix_data liver  --prefix_run seurat_3_align  --use_filtered_feature_bc_matrix F --nCount_RNA_min 500  --nCount_RNA_max 15000 --nFeature_RNA_min 100 --nFeature_RNA_max 10000 --percent.mito_max Inf --percent.ribo_max Inf --rm_sc_multiplets T --n_comp 75 --align_group_IDs "c('all')" --feats_to_plot "c('percent.mito','percent.ribo','nCount_RNA','nFeature_RNA','MALAT1')"
+# time Rscript /projects/jonatan/tools/seurat-src/seurat_pipeline.R --dirs_project_10x 'c("/nfsdata/data/sc-10x/data-runs/180511-perslab-immunometab/")' --dir_out /projects/jonatan/tmp-liver/ --flag_organism hsapiens --prefix_data liver  --prefix_run seurat_3_merge  --use_filtered_feature_bc_matrix F --nCount_RNA_min 500  --nCount_RNA_max 15000 --nFeature_RNA_min 100 --nFeature_RNA_max 10000 --percent.mito_max Inf --percent.ribo_max Inf --rm_sc_multiplets T --n_comp 75 --merge_specify "list(sc=c('245L',247L','249L'),sn=c('255L',259L','260L'))" --feats_to_plot "c('percent.mito','percent.ribo','nCount_RNA','nFeature_RNA','MALAT1')" 
 
 # Sources
 ## Alignment tutorial: PBMCs - 10x and seqwell: https://satijalab.org/seurat/Seurat_AlignmentTutorial.html
@@ -24,9 +24,9 @@ suppressPackageStartupMessages(library(optparse))
 
 option_list <- list(
   make_option("--dirs_project_10x", type="character", default = NULL,
-              help = "Corresponds to cellranger's $DATARUNS_DIR/$PROJECT_ID or e.g. $SAMPLE_NAME subfolders with /outs/filtered_gene_bc_matrices/mm10 subdirs. Takes a quoted vector, [default %default]"),  
+              help = "Corresponds to cellranger's $DATARUNS_DIR/$PROJECT_ID or e.g. $SAMPLE_NAME subfolders with /outs/filtered_feature_bc_matrix/mm10 subdirs. Takes a quoted vector, [default %default]"),  
   make_option("--paths_data", type="character", default = NULL,
-              help = "Path(s) to single counts data matrix stored in standard (gz compressed) delimited text format or loom. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g. ''c('<path1>','<path2>')'',  [default %default]"),  
+              help = "Path(s) to single counts data matrix stored in standard (gz compressed) delimited text format, Seurat 3.0 or loom. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g. ''c('<path1>','<path2>')'',  [default %default]"),  
   make_option("--dir_out", type="character",
               help = "Project directory to which to write files. Should include subdirectories /tables, /RObjects, /plots, /log"),  
   make_option("--flag_datatype", type="character", default = "sc",
@@ -43,19 +43,19 @@ option_list <- list(
               help = "Approximately how many cells loaded in each sample? Takes a vector, in quotes, with one value per group of samples or a single common value. Used by doubletFinder to estimate doublet rate, [default %default]"),
   make_option("--n_cells_recovered", type="character", default = NULL,
               help = "Approximately how many cells recovered per sample? Takes a vector, in quotes, with one value per group of samples or a single common value. Used to cut off cells in QC. If left as NULL, a sensible value is computed on basis on n_cells_loaded [default %default]"),
-  make_option("--use_filtered_gene_bc_matrices", type="logical", default = T,
-              help = "Use the filtered_gene_bc_matrices generated by 10x Genomics cell ranger? If F, uses the raw, [default %default]"),
-  make_option("--nUMI_min", type="integer", default = 1000L,
+  make_option("--use_filtered_feature_bc_matrix", type="logical", default = T,
+              help = "Use the filtered_feature_bc_matrix generated by 10x Genomics cell ranger? If F, uses the raw, [default %default]"),
+  make_option("--nCount_RNA_min", type="integer", default = 1000L,
               help = "Minimum number of Unique Molecular Identifiers needed to keep a cell [default %default]"),
-  make_option("--nUMI_max", type="integer", default = 25000L,
+  make_option("--nCount_RNA_max", type="integer", default = 25000L,
               help = "Max number of Unique Molecular Identifiers tolerated in a cell [default %default]"),
   make_option("--run_SoupX", type="logical", default = TRUE,
               help = "Run the data through SoupX?, [default %default]"),
   make_option("--SoupX_genes", type="character", default = NULL,
               help = "If using SoupX to filter out ambient RNA, optionally provide a custom set of genes for each sample. Takes a quoted list of vectors of gene names, each vector named by sample. Alternatively, a single vector to use for all samples. [default %default]"),
-  make_option("--nGene_min", type="integer", default = 500L,
+  make_option("--nFeature_RNA_min", type="integer", default = 500L,
               help = "Minimum number of genes needed to keep a cell [default %default]"),
-  make_option("--nGene_max", type="integer", default = 10000L,
+  make_option("--nFeature_RNA_max", type="integer", default = 10000L,
               help = "Max number of genes tolerated in a cell [default %default]"),
   make_option("--percent.mito_max", type="numeric", default = 0.15,
               help = "Maximum proportion of mitochrondrial genes tolerated in a cell, [default %default]"),
@@ -63,8 +63,8 @@ option_list <- list(
               help = "Maximum proportion of ribosomal genes tolerated in a cell, [default %default]"),
   make_option("--rm_sc_multiplets", type="logical", default = T,
               help = "Use DoubletFinder to remove suspected multiplets? [default %default]"),
-  make_option("--vars.to.regress", type="character", default='c("nUMI", "percent.mito", "percent.ribo")',
-              help="Provide arguments to Seurat's ScaleData function in the form of a vector in quotes, defaults to ''c('nUMI', 'percent.mito', 'percent.ribo')'' [default %default]"),
+  make_option("--vars.to.regress", type="character", default='c("nCount_RNA", "percent.mito", "percent.ribo")',
+              help="Provide arguments to Seurat's ScaleData function in the form of a vector in quotes, defaults to ''c('nCount_RNA', 'percent.mito', 'percent.ribo')'' [default %default]"),
   make_option("--merge_group_IDs", type="character", default = NULL,
               help = "Merge samples by some group identifiers? Precedes any sample alignment. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g. ''c('GF','CR')'' to merge all expression data containing the string 'GF' or 'CR', respectively. The group identifier must be part of the names of the sample sub-directories. Use 'c('all')' to merge all samples, [default %default]"), 
   make_option("--merge_specify", type="character", default = NULL,
@@ -73,22 +73,31 @@ option_list <- list(
               help = "Align samples by some identifiers? Succeeds any sample merge. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g.''c('tissue.1','tissue.2')''. Use ''c('all')'' to align all samples, [default %default]"), 
   make_option("--align_specify", type="character", default = NULL,
               help = "align samples by individual sample identifiers? Succeeds any sample merge. Similar to align_group_IDs, but specifying samples in each group by matching strings. Takes a list of vectors of sample identifiers, named by desired group identifier. The whole list should be in quotes (single if using double inside, and vice versa). E.g. ''list(colon=c('1_GF', '2_CR'), ileum=c('3_GF', '4_CR'))'', [default %default]"), 
+  make_option("--nAnchorFeatures", type="integer", default = 2000,
+              help = "How many features (e.g. genes) to use when integrating/aligning datasets [default %default]"), 
   make_option("--n_PC", type="integer", default = 50L,
               help = "How many principal components? [default %default]"),
   make_option("--use_jackstraw", type="logical", default = TRUE,
               help = "Use Jackstraw resampling to select subset of PCs with significant gene loadings? May improve results but slow [default %default]"),
-  # make_option("--n_CC", type="integer", default = 15L,
-  #             help = "How many canonical components to use for alignment? [default %default]"),
   make_option("--res_primary", type="double", default = NULL,
               help = "resolution parameter to pass to Seurat::FindClusters. The usual default is 0.8. Leave NULL to skip clustering [default %default]"),
   make_option("--res_to_calc", type="character", default = NULL,
               help = "multiple resolution parameters to pass to Seurat::FindClusters. Must include res_primary. Format as a quoted character with a vector of values, without whitespace. [default %default]"),
-  make_option("--feats_to_plot", type="character", default = 'c("nUMI","nGene","percent.mito","percent.ribo","Malat1")',
+  make_option("--path_transferLabelsRef", type="character", default = NULL,
+              help = "If provided, Seurat transfers labels from path_transferLabelsRef, which must be a seurat object with labels[default %default]"),
+  make_option("--colLabels", type="character", default = NULL,
+              help = "If path_transferLabelsRef is given, give the column name for the labels to transfer [default %default]"),
+  make_option("--minPredictionScore", type="numeric", default = 0.7,
+              help = "If path_transferLabelsRef is given, minimum prediction score (0-1), [default %default]"),
+  make_option("--feats_to_plot", type="character", default = 'c("nCount_RNA","nFeature_RNA","percent.mito","percent.ribo","Malat1")',
               help = "Features to plot. Format as a quoted character with a vector of values, without whitespace. [default %default]"),
   make_option("--feats_plot_separate", type="logical", default = T,
               help = "Plot features separately or in one plot? If FALSE, only the first two features will be plotted [default %default]"),
   make_option("--RAM_Gb_max", type="integer", default=200,
-              help = "Upper limit on Gb RAM available. Taken into account when setting up parallel processes. [default %default]")
+              help = "Upper limit on Gb RAM available. Taken into account when setting up parallel processes. [default %default]"),
+  make_option("--path_runLog", type="character", default=NULL,
+              help = "Path to file to log the run and the git commit. If left as NULL, write to a file called runLog.text in the dirLog [default %default]")
+  
 )
 
 ######################################################################
@@ -126,11 +135,11 @@ prefix_run <- opt$prefix_run
 paths_metadata <- opt$paths_metadata ; if (!is.null(paths_metadata)) paths_metadata <- eval(parse(text=paths_metadata))
 n_cells_loaded <- opt$n_cells_loaded ; if (!is.null(n_cells_loaded)) n_cells_loaded <- eval(parse(text=n_cells_loaded))
 n_cells_recovered <- opt$n_cells_recovered ; if (!is.null(n_cells_recovered)) n_cells_recovered <- eval(parse(text=n_cells_recovered))
-use_filtered_gene_bc_matrices = opt$use_filtered_gene_bc_matrices 
-nGene_min = opt$nGene_min
-nGene_max = opt$nGene_max
-nUMI_min = opt$nUMI_min
-nUMI_max = opt$nUMI_max
+use_filtered_feature_bc_matrix = opt$use_filtered_feature_bc_matrix 
+nFeature_RNA_min = opt$nFeature_RNA_min
+nFeature_RNA_max = opt$nFeature_RNA_max
+nCount_RNA_min = opt$nCount_RNA_min
+nCount_RNA_max = opt$nCount_RNA_max
 run_SoupX <- opt$run_SoupX
 SoupX_genes <- opt$SoupX_genes
 if (!is.null(SoupX_genes)) SoupX_genes <- eval(parse(text=SoupX_genes))
@@ -142,93 +151,104 @@ merge_group_IDs <- opt$merge_group_IDs ; if (!is.null(merge_group_IDs)) merge_gr
 merge_specify <- opt$merge_specify ; if (!is.null(merge_specify)) merge_specify <- eval(parse(text=merge_specify))
 align_group_IDs <- opt$align_group_IDs ; if (!is.null(align_group_IDs)) align_group_IDs <- eval(parse(text=align_group_IDs))
 align_specify <- opt$align_specify ; if (!is.null(align_specify)) align_specify <- eval(parse(text=align_specify))
+nAnchorFeatures <- opt$nAnchorFeatures
 n_PC <- opt$n_PC
 use_jackstraw <- opt$use_jackstraw
 #n_CC <- opt$n_CC
 res_primary <- opt$res_primary
 res_to_calc <- opt$res_to_calc ; if (!is.null(res_to_calc)) res_to_calc <- eval(parse(text = res_to_calc))
+path_transferLabelsRef <- opt$path_transferLabelsRef
+colLabels <- opt$colLabels
+minPredictionScore <- opt$minPredictionScore
 feats_to_plot <- opt$feats_to_plot ; if (!is.null(feats_to_plot)) feats_to_plot <- eval(parse(text = feats_to_plot))
 feats_plot_separate <- opt$feats_plot_separate
 #n_cores <- opt$n_cores
 RAM_Gb_max <- opt$RAM_Gb_max
+path_runLog <- opt$path_runLog
 
 ######################################################################
 ######################## CONDITIONED PACKAGES  #######################
 ######################################################################
 
-if (!is.null(res_primary)) ipak(c("xlsx"))
+#if (!is.null(res_primary)) ipak(c("xlsx"))
+if (!is.null(res_primary)) ipak(c("openxlsx"))
 
-if (run_SoupX) {
-  ipak(c('SoupX', 'LTMGSCA'))
-  
-  ## https://github.com/constantAmateur/SoupX/blob/master/R/load10X.R
-  
-  #' Load a collection of 10X data-sets
-  #'
-  #' Loads unfiltered 10X data from each data-set and identifies which droplets are cells using the cellranger defaults.
-  #'
-  #' @export
-  #' @param dataDirs Vector of top level cellranger output directories (the directory that contains the "raw_gene_bc_matrices" folder).
-  #' @param channelNames To make droplet barcodes unique across experiment, each channel needs its own unique label.  If not given, this is set numerically.
-  #' @param ... Extra parameters passed to \code{SoupChannel} construction function.
-  #' @return A SoupChannelList object containing the count tables for each 10X dataset.
-  #' @seealso SoupChannel SoupChannelList estimateSoup
-  #' @importFrom Seurat Read10X
-  
-  load10X = function(dataDirs, 
-                     use_filtered_gene_bc_matrices, 
-                     sample_ID,
-                     n_cells,
-                     nUMI_min, 
-                     nUMI_max,
-                     dir_plots,
-                     prefix_data,
-                     prefix_run,
-                     channelNames=NULL,...){
-    if(is.null(channelNames))
-      channelNames = sprintf('Channel%d',seq_along(dataDirs))
-    channels = list()
-    for(i in seq_along(dataDirs)){
-      message(sprintf("Loading data for 10X channel %s from %s",channelNames[i],dataDirs[i]))
-      dataDir = dataDirs[i]
-      #Get reference
-      ref = list.files(file.path(dataDir,'raw_gene_bc_matrices'))
-      #Load the 10X data
-      tod = Read10X(file.path(dataDir,'raw_gene_bc_matrices',ref))
-      
-      ### CHANGED ###
-      if (use_filtered_gene_bc_matrices) {
-        #Get the barcodes that cell ranger considers to contain cells
-        cells = read.delim(file.path(dataDir,'filtered_gene_bc_matrices',ref,'barcodes.tsv'),sep='\t',header=FALSE)
-        cells = gsub('-1','',cells[,1])
-        
-        #Get the index in the big table
-        cellIdxs = match(cells,colnames(tod))
-        
-      } else {
-        
-        tod %>% colSums -> nUMI_sums
-        nUMI_sums %>% rank -> rank_tmp
-        which(rank_tmp >= (length(rank_tmp)-n_cells)) -> cellIdxs
-        cells <- colnames(tod)[cellIdxs]
-        nUMI_sums[cellIdxs] %>% sort(decreasing=T) -> nUMI_sums_sort
-        
-        # Plot nUMI histogram # TODO test this
-        ggplot(data.frame(nUMI=nUMI_sums_sort, barcode=1:length(nUMI_sums_sort)), aes(barcode,nUMI)) + geom_line() + 
-          scale_x_continuous(trans='log10', limits=c(1,n_cells+n_cells%/%5), breaks = c(sapply(1:4, function(x) 10^x))) + 
-          scale_y_continuous(trans='log10', limits=c(1,nUMI_sums_sort[1]), breaks = c(sapply(1:4, function(x) 10^x))) + 
-          geom_hline(yintercept=nUMI_min) + geom_hline(yintercept=nUMI_max) + 
-          ggtitle(paste0(sample_ID, ": UMI counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
-        ggsave(filename=paste0(dir_plots, prefix_data,"_", prefix_run,"_", sample_ID,"_nUMI_vs_barcode.pdf"), w=12, h=8)
-        
-      }
-      #############
-      channels[[channelNames[i]]] = SoupChannel(tod,tod[,cellIdxs,drop=FALSE],channelName=channelNames[i],ref=ref,path=dataDir,dataType='10X',...)
-    }
-    channels = SoupChannelList(channels)
-    return(channels)
-  }
-}
+if (run_SoupX) ipak(c('SoupX', 'LTMGSCA'))
+#'   
+#'   ## https://github.com/constantAmateur/SoupX/blob/master/R/load10X.R
+#'   
+#'   #' Load a collection of 10X data-sets
+#'   #'
+#'   #' Loads unfiltered 10X data from each data-set and identifies which droplets are cells using the cellranger defaults.
+#'   #'
+#'   #' @export
+#'   #' @param dataDirs Vector of top level cellranger output directories (the directory that contains the "raw_feature_bc_matrix" folder).
+#'   #' @param channelNames To make droplet barcodes unique across experiment, each channel needs its own unique label.  If not given, this is set numerically.
+#'   #' @param ... Extra parameters passed to \code{SoupChannel} construction function.
+#'   #' @return A SoupChannelList object containing the count tables for each 10X dataset.
+#'   #' @seealso SoupChannel SoupChannelList estimateSoup
+#'   #' @importFrom Seurat Read10X
+#'   
+#'   load10X = function(dataDirs, 
+#'                      use_filtered_feature_bc_matrix, 
+#'                      sample_ID,
+#'                      n_cells,
+#'                      nCount_RNA_min, 
+#'                      nCount_RNA_max,
+#'                      dir_plots,
+#'                      prefix_data,
+#'                      prefix_run,
+#'                      channelNames=NULL,...){
+#'     if(is.null(channelNames))
+#'       channelNames = sprintf('Channel%d',seq_along(dataDirs))
+#'     channels = list()
+#'     for(i in seq_along(dataDirs)){
+#'       message(sprintf("Loading data for 10X channel %s from %s",channelNames[i],dataDirs[i]))
+#'       dataDir = dataDirs[i]
+#'       #Get reference
+#'       #ref = list.files(file.path(dataDir))#,'raw_feature_bc_matrix'))
+#'       #Load the 10X data
+#'       tod = Read10X(file.path(dataDir))#,'raw_feature_bc_matrix/'))
+#'       #tod = Read10X(file.path(dataDir,'raw_feature_bc_matrix',ref))
+#'       
+#'       ### CHANGED ###
+#'       if (use_filtered_feature_bc_matrix) {
+#'         #Get the barcodes that cell ranger considers to contain cells
+#'         cells = read.delim(file.path(dataDir,'filtered_feature_bc_matrix',ref,'barcodes.tsv'),sep='\t',header=FALSE)
+#'         cells = gsub('-1','',cells[,1])
+#'         
+#'         #Get the index in the big table
+#'         cellIdx = match(cells,colnames(tod))
+#'         
+#'       } else {
+#'         
+#'         tod %>% colSums -> nCount_RNA_sums
+#'         nCount_RNA_sums %>% rank -> rank_tmp
+#'         which(rank_tmp >= (length(rank_tmp)-n_cells)) -> cellIdx
+#'         cells <- colnames(tod)[cellIdx]
+#'         nCount_RNA_sums[cellIdx] %>% sort(decreasing=T) -> nCount_RNA_sums_sort
+#'         
+#'         # Plot nCount_RNA histogram # TODO test this
+#'         ggplot(data.frame(nCount_RNA=nCount_RNA_sums_sort, barcode=1:length(nCount_RNA_sums_sort)), aes(barcode,nCount_RNA)) + geom_line() + 
+#'           scale_x_continuous(trans='log10', limits=c(1,n_cells+n_cells%/%5), breaks = c(sapply(1:4, function(x) 10^x))) + 
+#'           scale_y_continuous(trans='log10', limits=c(1,nCount_RNA_sums_sort[1]), breaks = c(sapply(1:4, function(x) 10^x))) + 
+#'           geom_hline(yintercept=nCount_RNA_min) + geom_hline(yintercept=nCount_RNA_max) + 
+#'           ggtitle(paste0(sample_ID, ": UMI counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
+#'         ggsave(filename=paste0(dir_plots, prefix_data,"_", prefix_run,"_", sample_ID,"_nCount_RNA_vs_barcode.pdf"), w=12, h=8)
+#'         
+#'       }
+#'       #############
+#'       channels[[channelNames[i]]] = SoupChannel(tod,
+#'                                                 tod[,cellIdx,drop=FALSE],
+#'                                                 channelName=channelNames[i],
+#'                                                 #ref=ref,
+#'                                                 path=dataDir,
+#'                                                 dataType='10X')
+#'     }
+#'     channels = SoupChannelList(channels)
+#'     return(channels)
+#'   }
+#' }
 
 ######################################################################
 ############################ OPTIONS #################################
@@ -260,11 +280,22 @@ if (!file.exists(dir_log)) dir.create(dir_log)
 
 dir_scratch = "/scratch/tmp-seurat/"
 
-#dir_current = paste0(LocationOfThisScript(), "/")
+dir_current <- paste0(LocationOfThisScript(), "/")
 
 flag_date = substr(gsub("-","",as.character(Sys.Date())),3,1000)
 
-randomSeed <- 1234
+randomSeed <- 12345
+set.seed(randomSeed)
+
+# Seurat FindIntegrationAnchors and FindTransferAnchors 
+# https://satijalab.org/seurat/pancreas_integration_label_transfer.html
+k.anchor=5
+k.filter=200
+k.score=30
+max.features = 200
+k.weight = 50
+sd.weight = 1
+
 ######################################################################
 ########################### VERIFY INPUT #############################
 ######################################################################
@@ -278,10 +309,11 @@ if (!flag_organism %in% c("mmusculus", "hsapiens")) stop("flag_organism must be 
 ############# LOAD 10x DATA AND CREATE SEURAT OBJECT #################
 ######################################################################
 
+# Get dirs_sample and sample_IDs by searching dirs_project_10x
 if (!is.null(dirs_project_10x)) {
   
-  ref_transcript_cell <- if (flag_organism == "mmusculus") "mm10" else if (flag_organism=="hsapiens") "hg19"
-  ref_transcript_nuclei <- if (flag_organism == "mmusculus") "mm10-1\\.2\\.0_premrna" else if (flag_organism=="hsapiens") "GRCh38" 
+  #ref_transcript_cell <- if (flag_organism == "mmusculus") "mm10" else if (flag_organism=="hsapiens") "hg19"
+  #ref_transcript_nuclei <- if (flag_organism == "mmusculus") "mm10-1\\.2\\.0_premrna" else if (flag_organism=="hsapiens") "GRCh38" 
 
   # Do initial rough search
   fun <- function(dir_project_10x) {
@@ -292,10 +324,12 @@ if (!is.null(dirs_project_10x)) {
   dirs_all <- unlist(dirs_all, use.names=F)
   
   # For some reason, giving the pattern argument to dir() returns nothing
-  pattern0 = if (use_filtered_gene_bc_matrices) { 
-    paste0(".*outs/filtered_gene_bc_matrices/", ref_transcript_cell, "$|.*outs/filtered_gene_bc_matrices/", ref_transcript_nuclei, "$")
+  pattern0 = if (!use_filtered_feature_bc_matrix | run_SoupX) { 
+    paste0(".*outs/raw_feature_bc_matrix$")
+    #paste0(".*outs/filtered_feature_bc_matrix/", ref_transcript_cell, "$|.*outs/filtered_feature_bc_matrix, "/", ref_transcript_nuclei, "$")
   } else { 
-    paste0(".*outs/raw_gene_bc_matrices/", ref_transcript_cell, "$|.*outs/raw_gene_bc_matrices/", ref_transcript_nuclei, "$")
+    paste0(".*outs/filtered_feature_bc_matrix$")#/", ref_transcript_cell, "$|.*outs/filtered_feature_bc_matrix$")#, ref_transcript_nuclei, "$")
+    #paste0(".*outs/raw_feature_bc_matrix/", ref_transcript_cell, "$|.*outs/raw_feature_bc_matrix", "/", ref_transcript_nuclei, "$")
   }
   
   # successively filter down vector of directories
@@ -338,7 +372,8 @@ if (!is.null(dirs_project_10x)) {
   dirs_sample <- paste0(dirs_sample, "/")
   
   # strip down the directory strings to get sample_IDs
-  sample_IDs <- gsub(paste0("/scratch|/nfsdata|/data|/sc-10x|/data-runs|-\\d{4}_cells/|outs|/raw_gene_bc_matrices|/filtered_gene_bc_matrices|/", ref_transcript_cell ,"/|", ref_transcript_nuclei ,"/"), "", dirs_sample)
+  #sample_IDs <- gsub(paste0("/scratch|/nfsdata|/data|/sc-10x|/data-runs|-\\d{4}_cells/|outs|/raw_feature_bc_matrix|/filtered_feature_bc_matrix|/", ref_transcript_cell ,"/|", ref_transcript_nuclei ,"/"), "", dirs_sample)
+  sample_IDs <- gsub(paste0("/scratch|/nfsdata|/data|/sc-10x|/data-runs|-\\d{4}_cells/|outs|/raw_feature_bc_matrix|/filtered_feature_bc_matrix|raw_feature_bc_matrix|filtered_feature_bc_matrix/"), "", dirs_sample)
   sample_IDs <- gsub("^/[^/]*", "", sample_IDs)
   sample_IDs <- gsub("/", "", sample_IDs)
   
@@ -349,6 +384,8 @@ if (!is.null(dirs_project_10x)) {
   sample_IDs <- gsub(".*/|\\.RData|\\.rda|\\.RDS|\\.loom|\\.csv|\\.tab|\\.txt", "", dirs_sample, ignore.case = T)
 }
 
+names(dirs_sample) <- sample_IDs
+
 if (is.null(n_cells_recovered)) {
   train_cells_loaded <- c(870, 1700, 3500, 5300, 7000, 8700, 10500, 12200, 14000, 15700, 17400)
   train_cells_recovered <- c(500,seq(from=1000,to=10000, by=1000))
@@ -356,193 +393,218 @@ if (is.null(n_cells_recovered)) {
   n_cells_recovered <- round(n_cells_recovered_lm$coefficients[1]+n_cells_recovered_lm$coefficients[2]*n_cells_loaded, 0) %>% na.omit %>% as.integer
 } 
 
+if (length(n_cells_loaded)==1) n_cells_loaded <- rep(x = n_cells_loaded, times=length(sample_IDs))
+if (length(n_cells_recovered)==1) n_cells_recovered <- rep(x = n_cells_recovered, times=length(sample_IDs))
+
 # Check input param n_cells_loaded
-if (!length(n_cells_loaded) %in% c(1, length(dirs_sample))) stop("n_cells_loaded must be either a single integer or an integer per sample")
-if (!length(n_cells_recovered) %in% c(1, length(dirs_sample))) stop("n_cells_recovered must be either a single integer or an integer per sample")
+if (length(n_cells_loaded) != length(dirs_sample)) stop("n_cells_loaded must be either a single integer or an integer per sample")
+if (length(n_cells_recovered)!=length(dirs_sample)) stop("n_cells_recovered must be either a single integer or an integer per sample")
 if (any(n_cells_loaded<n_cells_recovered)) stop("n_cells_recovered cannot exceed n_cells_loaded")
 
-outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_load_data_do_QC.txt")
+if (!is.null(dirs_project_10x)) {
+  # call Read10X
+  outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_Read10X.txt")
+  list_data_tmp <- safeParallel(arg=list("dir_sample"=dirs_sample), fun=Read10X, outfile=outfile)
 
-fun <- function(sample_ID, dir_sample, n_cells) {
-  
-  if (!is.null(dirs_project_10x)) { 
-  ########################### SOUPX ####################################
-    if (run_SoupX) {
-      
-      dir_sample_SoupX <- gsub(paste0("/raw_gene_bc_matrices|/filtered_gene_bc_matrices|",ref_transcript_cell ,"/|", ref_transcript_nuclei, "/"), "", dir_sample)
-      scl_success <-T 
-      tryCatch({scl <- load10X(dataDirs = dir_sample_SoupX, 
-                     channelNames = sample_ID,
-                     use_filtered_gene_bc_matrices = use_filtered_gene_bc_matrices,
-                     n_cells= n_cells, 
-                     nUMI_min=nUMI_min, 
-                     nUMI_max=nUMI_max, 
-                     sample_ID=sample_ID, 
-                     dir_plots=dir_plots, 
-                     prefix_data=prefix_data, 
-                     prefix_run=prefix_run)}, error=function(err){
-                       scl_success <-F
-                     })
-      
-
-      if (scl_success) {
-        if (is.null(SoupX_genes)) {
-        # infer soup specific (bimodally distributed) genes since none provided by user
-        
-        scl <- inferNonExpressedGenes(scl)
-        
-        if (any(scl$channels[[sample_ID]]$nonExpressedGenes$isUseful)) {
-          nonExpressedGenes_useful <- scl$channels[[sample_ID]]$nonExpressedGenes[scl$channels[[sample_ID]]$nonExpressedGenes$isUseful,]
-          nonExpressedGenes_useful <- nonExpressedGenes_useful[order(nonExpressedGenes_useful$extremity, decreasing = T),]
-          greenlight = sum(nonExpressedGenes_useful$extremity>0.7)>1
-  
-        } else {
-          greenlight=F
-        }
-        
-        if (greenlight) {
-          topgenes <- rownames(nonExpressedGenes_useful)[nonExpressedGenes_useful$extremity>0.7]
-          topgenes <- topgenes[1:min(10, length(topgenes))]
-          
-          # Fit a mix of two truncated Normal distribution using LTMGSCA package; filter genes by upper mode fit >0.35
-          toc_log <- log(as.matrix(scl$toc))
-          list_fits <- lapply(topgenes, function(genes) SeparateKRpkmNew(x=toc_log[genes,, drop=F], n=100,q=0,k=2,err = 1e-10))
-          idx_topgenes_ok <- sapply(list_fits, function(fit) fit[2,1]>0.4)
-          topgenes <- topgenes[idx_topgenes_ok]
-          
-          if (length(topgenes)<=1) {
-            greenlight=F
-          } 
-        }
-      } else {
-        topgenes <- SoupX_genes 
-        greenlight=T
-      }
-    } else {
-      greenlight=F
-    }
-      
-      if (greenlight) {
-        # This plot shows:
-        # 1. for each selected gene sample 100 cells
-        # 2. for each cell, compute the expected normalized expression based on soup
-        # 3. for each cell, compute the observed normalized expression
-        # 4. for each cell, compute the log ratio of observed to expected
-        # 5. where the ratio is high, call the gene as actually expressed (not just by soup)
-        #       Ideally the 'actually expressed' should look like a mode
-        # 6. 
-        
-        tryCatch({
-          plotMarkerDistribution(scl, sample_ID, topgenes)
-          ggsave(filename = paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_SoupX_plotMarkerDistribution.pdf"), w=15, h=8)
-    
-          #estimate the contamination fraction
-          scl = calculateContaminationFraction(scl, sample_ID, list(genes = topgenes), excludeMethod = 'pCut', exCut=0.5)
-          #plotChannelContamination(scl, "Channel1")
-          #ggsave(filename = paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_SoupX_plotChannelContamination.pdf"), w=15, h=8)
-          
-          # Cell level contamination fraction
-          scl = interpolateCellContamination(scl, sample_ID, interpolationMethod = c("lowess"))
-          scl = adjustCounts(scl) # adds adjusted (raw) counts matrix in scl$atoc. 
-          # Alternative is strainCells, which modifies expression fraction. Columns (cells all sum to 1) 
-          
-          # What genes were set to zero min most cells? (output to log file)
-          cntSoggy = rowSums(scl$toc > 0)
-          cntAdjusted = rowSums(scl$atoc > 0)
-          mostZeroed <- head(sort(x=(cntSoggy - cntAdjusted)/cntSoggy, decreasing=T), n= 20)
-            
-          # Continue with adjusted counts matrix
-          data_tmp <- scl$atoc
-          
-          # Save topgenes temporarily for plotting later
-          saveRDS(object = topgenes, 
-                  file = paste0(dir_scratch, prefix_data, "_", prefix_run, "_", sample_ID, "_SoupX_topgenes.RDS"))
-        }, error=function(err) {
-                  message(paste0(sample_ID, ": plotMarkerDistribution failed with error: ", err))
-                  data_tmp <- Seurat::Read10X(data.dir = dir_sample)
-                })
-      } else {
-        data_tmp <- Seurat::Read10X(data.dir = dir_sample)
-      }
-    } else {
-      data_tmp <- Seurat::Read10X(data.dir = dir_sample)
-      
-      if (!use_filtered_gene_bc_matrices) {
-        # Take top n cells
-        data_tmp %>% colSums -> nUMI_sums
-        nUMI_sums %>% rank -> rank_tmp
-        which(rank_tmp >= (length(rank_tmp)-n_cells)) -> idx_cells
-        #which(rank_tmp <= (length(rank_tmp)-5000) & rank_tmp > (length(rank_tmp)-10000)) -> idx_cells
-        
-        nUMI_sums[idx_cells] %>% sort(decreasing=T) -> nUMI_sums_sort
-        
-        # Plot nUMI histogram # TODO test this
-        ggplot(data.frame(nUMI=nUMI_sums_sort, barcode=1:length(nUMI_sums_sort)), aes(barcode,nUMI)) + geom_line() + 
-          scale_x_continuous(trans='log10', limits=c(1,n_cells+n_cells%/%5), breaks = c(sapply(1:4, function(x) 10^x))) + 
-          scale_y_continuous(trans='log10', limits=c(1,nUMI_sums_sort[1]), breaks = c(sapply(1:4, function(x) 10^x))) + 
-          geom_hline(yintercept=nUMI_min) + geom_hline(yintercept=nUMI_max) + 
-          ggtitle(paste0(sample_ID, ": UMI counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
-        ggsave(filename=paste0(dir_plots, prefix_data,"_", prefix_run,"_", sample_ID,"_nUMI_vs_barcode.pdf"), w=12, h=8)
-        
-        # filter the matrix to n cells loaded
-        data_tmp <- data_tmp[, idx_cells] 
-      }
-      
-    }
-    
-    colnames(data_tmp) <- make.unique(paste0(sample_ID, "_", colnames(data_tmp)))
-    
-  } else {
-    
+} else {
+  # if expression data files are in a different format than that output by 10x Genomics cellranger, e.g. as matrices 
+  fun = function(dir_sample, sample_ID) {
     data_tmp <- load_obj(f=dir_sample)
-    # If seurat object take raw data
-    seurat_meta <- NULL
-    if (class(data_tmp)=="seurat") {
-      seurat_metadata <- if(is.null(dim(data_tmp@meta.data))) data_tmp@meta.data else NULL  # TODO
-      data_tmp <- GetAssayData(data_tmp, slot="raw.data")
-      colnames(data_tmp) <- make.unique(paste0(sample_ID, "_", colnames(data_tmp)))
-    } else {
-      if (all(c(1,2,3) %in% rownames(data_tmp))) {
-        if (!is.null(data_tmp[["X"]]))  {
-          rownames(data_tmp) <- data_tmp[["X"]] 
-          data_tmp[["X"]] <- NULL
-        } else {
-            stop("cannot identify expression data gene names. Try to add as a column 'X'")
-          }
+    if (all(c(1,2,3) %in% rownames(data_tmp))) {
+      if (!is.null(data_tmp[["X"]]))  {
+        rownames(data_tmp) <- data_tmp[["X"]] 
+        data_tmp[["X"]] <- NULL
+      } else {
+        stop("cannot identify expression data gene names. Try to add as a column 'X'")
       }
     }
-    # Do not filter down to n cells loaded
+    return(data_tmp)
   }
+
+  args = list("dir_sample"=dirs_sample, "sample_ID"= sample_IDs)
+  outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_loadData.txt")
+  list_data_tmp <- safeParallel(fun=fun, args=args, outfile=outfile)
+}
+
+# Get filtered cell idx - unless we loaded cellranger's filtered matrix and are not using SoupX
+
+if (run_SoupX & use_filtered_feature_bc_matrix)  {
+  fun = function(dir_sample, data_tmp) {
+    #Get the barcodes that cell ranger considers to contain cells
+    path_barcodes <- gsub("raw_feature_bc_matrix/$", "filtered_feature_bc_matrix/barcodes.tsv.gz", dir_sample)
+    cells = read.delim(path_barcodes,sep='\t',header=FALSE)
+    cells = gsub('-1','',cells[,1])
+    
+    #Get the index in the big table
+    mcellIdx <- match(cells,colnames(data_tmp))
+  }
+  
+  args = list("dir_sample"=dirs_sample, "data_tmp"=list_data_tmp)
+  outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_get_filtered_cell_idx.txt")
+  
+  list_cellIdx <- safeParallel(fun=fun, args=args, outfile=outfile)
+  
+} else if (!use_filtered_feature_bc_matrix) {
+  # whether or not we use SoupX
+  fun = function(n_cells, data_tmp, sample_ID) {
+    
+    data_tmp %>% colSums -> nCount_RNA_sums
+    nCount_RNA_sums %>% rank -> rank_tmp
+    which(rank_tmp >= (length(rank_tmp)-n_cells)) -> cellIdx
+    #which(rank_tmp <= (length(rank_tmp)-5000) & rank_tmp > (length(rank_tmp)-10000)) -> cellIdx
+    nCount_RNA_sums[cellIdx] %>% sort(decreasing=T) -> nCount_RNA_sums_sort
+    # Plot nCount_RNA histogram 
+    ggplot(data.frame(nCount_RNA=nCount_RNA_sums_sort, barcode=1:length(nCount_RNA_sums_sort)), aes(barcode,nCount_RNA)) + geom_line() + 
+      scale_x_continuous(trans='log10', limits=c(1,n_cells+n_cells%/%5), breaks = c(sapply(1:4, function(x) 10^x))) + 
+      scale_y_continuous(trans='log10', limits=c(1,nCount_RNA_sums_sort[1]), breaks = c(sapply(1:4, function(x) 10^x))) + 
+      geom_hline(yintercept=nCount_RNA_min) + geom_hline(yintercept=nCount_RNA_max) + 
+      ggtitle(paste0(sample_ID, ": UMI counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
+    ggsave(filename=paste0(dir_plots, prefix_data,"_", prefix_run,"_", sample_ID,"_nCount_RNA_vs_barcode.pdf"), w=12, h=8)
+    return(cellIdx)
+  } 
+  
+  args = list("n_cells"=n_cells_recovered, "data_tmp"=list_data_tmp, "sample_ID"=sample_IDs)
+  outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_get_top_cell_idx.txt")
+  
+  list_cellIdx <- safeParallel(fun=fun, args=args, outfile=outfile)
+
+} else {
+  list_cellIdx <- NULL
+}
+
+# SoupX ambient RNA filtering
+if (run_SoupX) {
+  fun= function(data_tmp, cellIdx, channelName) {
+    SoupChannel(tod=data_tmp,
+                toc=tod[,cellIdx,drop=FALSE],
+                channelName=channelName,
+                #ref=ref,
+                #path=dataDir,
+                dataType='10X')
+    }
+  args = list("data_tmp" = list_data_tmp, "cellIdx"=list_cellIdx, "channelName" = sample_IDs)
+  outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_SoupChannel.txt")
+  list_channels <- safeParallel(fun=fun, args=args, outfile=outfile)
+  
+  scl = SoupChannelList(list_channels)
+
+  if (!is.null(SoupX_genes)) {
+    list_topgenes <- lapply(1:length(sample_IDs), function(i) SoupX_genes)
+  }  else {
+    # since no suitably specifically expressed genes provided by user
+    # find bimodally distributed genes 
+    scl <- inferNonExpressedGenes(scl)
+    
+    fun <- function(sample_ID) {
+      if (any(scl$channels[[sample_ID]]$nonExpressedGenes$isUseful)) {
+        nonExpressedGenes_useful <- scl$channels[[sample_ID]]$nonExpressedGenes[scl$channels[[sample_ID]]$nonExpressedGenes$isUseful,]
+        nonExpressedGenes_useful <- nonExpressedGenes_useful[order(nonExpressedGenes_useful$extremity, decreasing = T),]
+        
+        if (!sum(nonExpressedGenes_useful$extremity>0.7)>1) return(NA) 
+        
+        topgenes <- rownames(nonExpressedGenes_useful)[nonExpressedGenes_useful$extremity>0.7]
+        topgenes <- topgenes[1:min(10, length(topgenes))]
+        toc_log <- log(as.matrix(scl$toc))
+        list_fits <- lapply(topgenes, function(genes) SeparateKRpkmNew(x=toc_log[genes,, drop=F], n=100,q=0,k=2,err = 1e-10))
+        idx_topgenes_ok <- sapply(list_fits, function(fit) fit[2,1]>0.4)
+        topgenes <- topgenes[idx_topgenes_ok]
+        
+        if (length(topgenes)<=1) return(NA)
+        
+        return(topgenes) 
+  
+      } else {
+        return(NA)
+      }
+    }
+    args= list("sample_ID"=sample_IDs)
+    outfile = paste0(dir_log, prefix_data,"_",prefix_run,"_SoupX_findTopGenes.txt")
+    list_topgenes <- safeParallel(fun=fun, args=args, outfile=outfile)
+  }
+  
+  # If we have some suitable genes to estimate ambient RNA contamination, filter the expression matrix
+  if (!all(sapply(list_topgenes, function(vec_topgenes) all(is.na(vec_topgenes)), simplify = T))) {
+    fun = function(data_tmp, sample_ID, topgenes) {
+      if (all(is.na(topgenes))) return(data_tmp)
+      tryCatch({
+        #         # This plot shows:
+        #         # 1. for each selected gene sample 100 cells
+        #         # 2. for each cell, compute the expected normalized expression based on soup
+        #         # 3. for each cell, compute the observed normalized expression
+        #         # 4. for each cell, compute the log ratio of observed to expected
+        #         # 5. where the ratio is high, call the gene as actually expressed (not just by soup)
+        #         #       Ideally the 'actually expressed' should look like a mode
+        plotMarkerDistribution(scl, sample_ID, topgenes, maxCells=250)
+        ggsave(filename = paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_SoupX_plotMarkerDistribution.pdf"), w=15, h=8)
+        scl = calculateContaminationFraction(scl, sample_ID, list(genes = topgenes), excludeMethod = 'pCut', exCut=0.5)
+        # Cell level contamination fraction
+        scl = interpolateCellContamination(scl, sample_ID, interpolationMethod = c("lowess"))
+        scl = adjustCounts(scl) # adds adjusted (raw) counts matrix in scl$atoc. 
+        # Alternative is strainCells, which modifies expression fraction. Columns (cells all sum to 1) 
+        # What genes were set to zero min most cells? (output to log file)
+        cntSoggy = rowSums(scl$toc > 0)
+        cntAdjusted = rowSums(scl$atoc > 0)
+        mostZeroed <- head(sort(x=(cntSoggy - cntAdjusted)/cntSoggy, decreasing=T), n= 20)
+        # Continue with adjusted counts matrix
+        data_tmp <- scl$atoc
+        # Save topgenes temporarily for plotting later
+        saveRDS(object = topgenes, 
+                file = paste0(dir_RObjects, prefix_data, "_", prefix_run, "_", sample_ID, "_SoupX_topgenes.RDS"))
+        return(data_tmp)
+      }, error= function(err) {
+        data_tmp
+      })
+    }
+      
+    outfile = paste0(dir_log, prefix_data,"_",prefix_run,"_SoupXAdjustcounts.txt")
+    args=list("data_tmp"=list_data_tmp, "sample_ID" = sample_IDs, topgenes = list_topgenes)
+    list_data_tmp <- safeParallel(fun=fun, args=args, outfile=outfile, scl=scl) 
+  }
+} else if (!use_filtered_feature_bc_matrix){
+  fun = function(data_tmp, cellIdx) {
+    data_tmp[,cellIdx, drop=F]
+  }
+  args=list(data_tmp=list_data_tmp, cellIdx = list_cellIdx)
+  outfile = paste0(dir_log, prefix_data,"_",prefix_run,"_filterDataTmp.txt")
+  list_data_tmp <- safeParallel(fun=fun,args=args, outfile = outfile)
+}
+
+# Now compute percent.mito, percent ribo
+fun = function(data_tmp, sample_ID) {
   
   # Compute and add percent mito and percent ribo as metadata
   mito.genes <- grepl(pattern = "^mt-", x = rownames(data_tmp), ignore.case=T)
   ribo.genes <- grepl(pattern = "^Rp[sl][[:digit:]]", x = rownames(data_tmp), ignore.case=T)
   colSums_tmp <- colSums(x = data_tmp)
   
-  metadata <- data.frame(percent.mito=colSums(x = data_tmp[mito.genes,])/colSums_tmp, percent.ribo = colSums(x = data_tmp[ribo.genes,])/colSums_tmp, rownames=colnames(data_tmp))
-  # Add nUMI
-  metadata[["nUMI"]] <- colSums(data_tmp)
+  metadata <- data.frame(percent.mito=colSums(x = data_tmp[mito.genes,])/colSums_tmp, 
+                         percent.ribo = colSums(x = data_tmp[ribo.genes,])/colSums_tmp, 
+                         row.names=colnames(data_tmp))
+  # Add nCount_RNA
+  metadata[["nCount_RNA"]] <- colSums(data_tmp)
   
-  # Add nGene
-  metadata[["nGene"]] <-  colSums(data_tmp>0)
+  # add idents
+  #if (!is.null(idents)) metadata[["idents"]] <- idents
+  
+  # Add nFeature_RNA
+  metadata[["nFeature_RNA"]] <-  colSums(data_tmp>0)
   metadata[["sample_ID"]] <-  rep(sample_ID, nrow(metadata))
   
   # Add sample IDs
   rownames(metadata) <- colnames(data_tmp)
-  
   # Plot QC metrics
-  ## nUMI_nGene
-  ggplot(metadata, aes(nUMI, nGene)) + 
+  ## nCount_RNA_nFeature_RNA
+  ggplot(metadata, aes(nCount_RNA, nFeature_RNA)) + 
     geom_point(shape=1) + 
-    scale_x_continuous(trans='log10', limits=c(1,max(metadata[["nUMI"]])), breaks = c(sapply(1:4, function(x) 10^x))) +
-    scale_y_continuous(trans='log2', limits=c(1, max(metadata[["nGene"]])), breaks = c(sapply(1:4, function(x) 10^x))) + 
-    geom_vline(xintercept=nUMI_min) + 
-    geom_vline(xintercept=nUMI_max) +
-    geom_hline(yintercept=nGene_min) + 
-    geom_hline(yintercept=nGene_max) +
-    ggtitle(paste0(sample_ID, ": nGene vs nUMI counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
+    scale_x_continuous(trans='log10', limits=c(1,max(metadata[["nCount_RNA"]])), breaks = c(sapply(1:4, function(x) 10^x))) +
+    scale_y_continuous(trans='log2', limits=c(1, max(metadata[["nFeature_RNA"]])), breaks = c(sapply(1:4, function(x) 10^x))) + 
+    geom_vline(xintercept=nCount_RNA_min) + 
+    geom_vline(xintercept=nCount_RNA_max) +
+    geom_hline(yintercept=nFeature_RNA_min) + 
+    geom_hline(yintercept=nFeature_RNA_max) +
+    ggtitle(paste0(sample_ID, ": nFeature_RNA vs nCount_RNA counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
   
-  ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_nUMI_nGene.pdf"), w=12, h=8)
+  ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_nCount_RNA_nFeature_RNA.pdf"), w=12, h=8)
   ## percent.mito, percent.ribo
   ggplot(metadata, aes(percent.mito, percent.ribo)) + 
     geom_point(shape=1) + 
@@ -554,10 +616,10 @@ fun <- function(sample_ID, dir_sample, n_cells) {
   ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_percent.mito_percent.ribo.pdf"), w=12, h=8)
   
   # Filter data matrix on QC metrics
-  idx_QC_ok <- metadata[["nUMI"]] >= nUMI_min & 
-    metadata[["nUMI"]] <= nUMI_max & 
-    metadata[["nGene"]] >= nGene_min & 
-    metadata[["nGene"]] <= nGene_max & 
+  idx_QC_ok <- metadata[["nCount_RNA"]] >= nCount_RNA_min & 
+    metadata[["nCount_RNA"]] <= nCount_RNA_max & 
+    metadata[["nFeature_RNA"]] >= nFeature_RNA_min & 
+    metadata[["nFeature_RNA"]] <= nFeature_RNA_max & 
     metadata[["percent.mito"]] <= percent.mito_max & 
     metadata[["percent.ribo"]] <= percent.ribo_max
   
@@ -584,28 +646,266 @@ fun <- function(sample_ID, dir_sample, n_cells) {
   }
 }
 
-message("Loading data")
+args=list("sample_ID"=sample_IDs, data_tmp = list_data_tmp)
+outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_QCandMakeSeuratObj.txt")
 
-args <- list("dir_sample" = dirs_sample, 
-             "sample_ID" = sample_IDs, 
-             "n_cells" = n_cells_recovered)
+list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
 
-list_seurat_obj <- safeParallel(fun=fun, 
-                                args=args,
-                                simplify=F,
-                                outfile=outfile, 
-                                dir_plots=dir_plots, 
-                                prefix_data=prefix_data,
-                                prefix_run=prefix_run,
-                                nUMI_min=nUMI_min,
-                                nUMI_max=nUMI_max, 
-                                nGene_min=nGene_min, 
-                                nGene_max=nGene_max, 
-                                percent.ribo_max=percent.ribo_max, 
-                                percent.mito_max=percent.mito_max,
-                                use_filtered_gene_bc_matrices=use_filtered_gene_bc_matrices, 
-                                dir_scratch=dir_scratch,
-                                n_cells = n_cells_recovered[1]) # needed otherwise not found
+# outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_load_data_do_QC.txt")
+# fun <- function(sample_ID, dir_sample, n_cells) {
+#   
+#   idents <- NULL
+#   
+#   if (!is.null(dirs_project_10x)) { 
+#   ########################### SOUPX ####################################
+#     if (run_SoupX) {
+#       
+#       #dir_sample_SoupX <- gsub("/raw_feature_bc_matrix/|/filtered_feature_bc_matrix/", "", dir_sample)
+#       #dir_sample_SoupX <- gsub(paste0("/raw_feature_bc_matrix|/filtered_feature_bc_matrix|",ref_transcript_cell ,"/|", ref_transcript_nuclei, "/"), "", dir_sample)
+#       scl_success <-T 
+#       tryCatch({
+#         scl <- load10X(dataDirs =  dir_sample,#dir_sample_SoupX, 
+#                      channelNames = sample_ID,
+#                      use_filtered_feature_bc_matrix = use_filtered_feature_bc_matrix,
+#                      n_cells= n_cells, 
+#                      nCount_RNA_min=nCount_RNA_min, 
+#                      nCount_RNA_max=nCount_RNA_max, 
+#                      sample_ID=sample_ID, 
+#                      dir_plots=dir_plots, 
+#                      prefix_data=prefix_data, 
+#                      prefix_run=prefix_run)
+#         }, error=function(err){
+#                        scl_success <-F
+#                      })
+#     
+#       if (scl_success) {
+#         if (is.null(SoupX_genes)) {
+#         # infer soup specific (bimodally distributed) genes since none provided by user
+#         
+#         scl <- inferNonExpressedGenes(scl)
+#         
+#         if (any(scl$channels[[sample_ID]]$nonExpressedGenes$isUseful)) {
+#           nonExpressedGenes_useful <- scl$channels[[sample_ID]]$nonExpressedGenes[scl$channels[[sample_ID]]$nonExpressedGenes$isUseful,]
+#           nonExpressedGenes_useful <- nonExpressedGenes_useful[order(nonExpressedGenes_useful$extremity, decreasing = T),]
+#           greenlight = sum(nonExpressedGenes_useful$extremity>0.7)>1
+#   
+#         } else {
+#           greenlight=F
+#         }
+#         
+#         if (greenlight) {
+#           topgenes <- rownames(nonExpressedGenes_useful)[nonExpressedGenes_useful$extremity>0.7]
+#           topgenes <- topgenes[1:min(10, length(topgenes))]
+#           
+#           # Fit a mix of two truncated Normal distribution using LTMGSCA package; filter genes by upper mode fit >0.35
+#           toc_log <- log(as.matrix(scl$toc))
+#           list_fits <- lapply(topgenes, function(genes) SeparateKRpkmNew(x=toc_log[genes,, drop=F], n=100,q=0,k=2,err = 1e-10))
+#           idx_topgenes_ok <- sapply(list_fits, function(fit) fit[2,1]>0.4)
+#           topgenes <- topgenes[idx_topgenes_ok]
+#           
+#           if (length(topgenes)<=1) {
+#             greenlight=F
+#           } 
+#         }
+#       } else {
+#         topgenes <- SoupX_genes 
+#         greenlight=T
+#       }
+#     } else {
+#       greenlight=F
+#     }
+#       
+#       if (greenlight) {
+#         # This plot shows:
+#         # 1. for each selected gene sample 100 cells
+#         # 2. for each cell, compute the expected normalized expression based on soup
+#         # 3. for each cell, compute the observed normalized expression
+#         # 4. for each cell, compute the log ratio of observed to expected
+#         # 5. where the ratio is high, call the gene as actually expressed (not just by soup)
+#         #       Ideally the 'actually expressed' should look like a mode
+#         # 6. 
+#         
+#         tryCatch({
+#           plotMarkerDistribution(scl, sample_ID, topgenes)
+#           ggsave(filename = paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_SoupX_plotMarkerDistribution.pdf"), w=15, h=8)
+#     
+#           #estimate the contamination fraction
+#           scl = calculateContaminationFraction(scl, sample_ID, list(genes = topgenes), excludeMethod = 'pCut', exCut=0.5)
+#           #plotChannelContamination(scl, "Channel1")
+#           #ggsave(filename = paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_SoupX_plotChannelContamination.pdf"), w=15, h=8)
+#           
+#           # Cell level contamination fraction
+#           scl = interpolateCellContamination(scl, sample_ID, interpolationMethod = c("lowess"))
+#           scl = adjustCounts(scl) # adds adjusted (raw) counts matrix in scl$atoc. 
+#           # Alternative is strainCells, which modifies expression fraction. Columns (cells all sum to 1) 
+#           
+#           # What genes were set to zero min most cells? (output to log file)
+#           cntSoggy = rowSums(scl$toc > 0)
+#           cntAdjusted = rowSums(scl$atoc > 0)
+#           mostZeroed <- head(sort(x=(cntSoggy - cntAdjusted)/cntSoggy, decreasing=T), n= 20)
+#             
+#           # Continue with adjusted counts matrix
+#           data_tmp <- scl$atoc
+#           
+#           # Save topgenes temporarily for plotting later
+#           saveRDS(object = topgenes, 
+#                   file = paste0(dir_scratch, prefix_data, "_", prefix_run, "_", sample_ID, "_SoupX_topgenes.RDS"))
+#         }, error=function(err) {
+#                   message(paste0(sample_ID, ": plotMarkerDistribution failed with error: ", err))
+#                   data_tmp <- Seurat::Read10X(data.dir = dir_sample)
+#                 })
+#       } else {
+#         data_tmp <- Seurat::Read10X(data.dir = dir_sample)
+#       }
+#     } else {
+#       data_tmp <- Seurat::Read10X(data.dir = dir_sample)
+#       
+#       if (!use_filtered_feature_bc_matrix) {
+#         # Take top n cells
+#         data_tmp %>% colSums -> nCount_RNA_sums
+#         nCount_RNA_sums %>% rank -> rank_tmp
+#         which(rank_tmp >= (length(rank_tmp)-n_cells)) -> idx_cells
+#         #which(rank_tmp <= (length(rank_tmp)-5000) & rank_tmp > (length(rank_tmp)-10000)) -> idx_cells
+#         
+#         nCount_RNA_sums[idx_cells] %>% sort(decreasing=T) -> nCount_RNA_sums_sort
+#         
+#         # Plot nCount_RNA histogram # TODO test this
+#         ggplot(data.frame(nCount_RNA=nCount_RNA_sums_sort, barcode=1:length(nCount_RNA_sums_sort)), aes(barcode,nCount_RNA)) + geom_line() + 
+#           scale_x_continuous(trans='log10', limits=c(1,n_cells+n_cells%/%5), breaks = c(sapply(1:4, function(x) 10^x))) + 
+#           scale_y_continuous(trans='log10', limits=c(1,nCount_RNA_sums_sort[1]), breaks = c(sapply(1:4, function(x) 10^x))) + 
+#           geom_hline(yintercept=nCount_RNA_min) + geom_hline(yintercept=nCount_RNA_max) + 
+#           ggtitle(paste0(sample_ID, ": UMI counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
+#         ggsave(filename=paste0(dir_plots, prefix_data,"_", prefix_run,"_", sample_ID,"_nCount_RNA_vs_barcode.pdf"), w=12, h=8)
+#         
+#         # filter the matrix to n cells loaded
+#         data_tmp <- data_tmp[, idx_cells] 
+#       }
+#       
+#     }
+#     
+#     colnames(data_tmp) <- make.unique(paste0(sample_ID, "_", colnames(data_tmp)))
+#     
+#   } else {
+#    
+#     data_tmp <- load_obj(f=dir_sample)
+#     # If seurat object take raw data
+#     seurat_meta <- NULL
+#     if (class(data_tmp)=="seurat") {
+#       #seurat_metadata <- if(is.null(dim(data_tmp@meta.data))) data_tmp@meta.data else NULL  # TODO
+#       idents <- Idents(data_tmp)
+#       data_tmp <- GetAssayData(data_tmp, slot="counts")
+#       colnames(data_tmp) <- make.unique(paste0(sample_ID, "_", colnames(data_tmp)))
+#   
+#     } else {
+#       if (all(c(1,2,3) %in% rownames(data_tmp))) {
+#         if (!is.null(data_tmp[["X"]]))  {
+#           rownames(data_tmp) <- data_tmp[["X"]] 
+#           data_tmp[["X"]] <- NULL
+#         } else {
+#             stop("cannot identify expression data gene names. Try to add as a column 'X'")
+#           }
+#       }
+#     }
+#     # Do not filter down to n cells loaded
+#   }
+#   
+#   # Compute and add percent mito and percent ribo as metadata
+#   mito.genes <- grepl(pattern = "^mt-", x = rownames(data_tmp), ignore.case=T)
+#   ribo.genes <- grepl(pattern = "^Rp[sl][[:digit:]]", x = rownames(data_tmp), ignore.case=T)
+#   colSums_tmp <- colSums(x = data_tmp)
+#   
+#   metadata <- data.frame(percent.mito=colSums(x = data_tmp[mito.genes,])/colSums_tmp, 
+#                          percent.ribo = colSums(x = data_tmp[ribo.genes,])/colSums_tmp, 
+#                          row.names=colnames(data_tmp))
+#   # Add nCount_RNA
+#   metadata[["nCount_RNA"]] <- colSums(data_tmp)
+#   
+#   # add idents
+#   if (!is.null(idents)) metadata[["idents"]] <- idents
+#     
+#   # Add nFeature_RNA
+#   metadata[["nFeature_RNA"]] <-  colSums(data_tmp>0)
+#   metadata[["sample_ID"]] <-  rep(sample_ID, nrow(metadata))
+#   
+#   # Add sample IDs
+#   rownames(metadata) <- colnames(data_tmp)
+#   
+#   # Plot QC metrics
+#   ## nCount_RNA_nFeature_RNA
+#   ggplot(metadata, aes(nCount_RNA, nFeature_RNA)) + 
+#     geom_point(shape=1) + 
+#     scale_x_continuous(trans='log10', limits=c(1,max(metadata[["nCount_RNA"]])), breaks = c(sapply(1:4, function(x) 10^x))) +
+#     scale_y_continuous(trans='log2', limits=c(1, max(metadata[["nFeature_RNA"]])), breaks = c(sapply(1:4, function(x) 10^x))) + 
+#     geom_vline(xintercept=nCount_RNA_min) + 
+#     geom_vline(xintercept=nCount_RNA_max) +
+#     geom_hline(yintercept=nFeature_RNA_min) + 
+#     geom_hline(yintercept=nFeature_RNA_max) +
+#     ggtitle(paste0(sample_ID, ": nFeature_RNA vs nCount_RNA counts vs. barcodes, top ", as.character(n_cells), " barcodes"))
+#   
+#   ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_nCount_RNA_nFeature_RNA.pdf"), w=12, h=8)
+#   ## percent.mito, percent.ribo
+#   ggplot(metadata, aes(percent.mito, percent.ribo)) + 
+#     geom_point(shape=1) + 
+#     geom_vline(xintercept=percent.mito_max) +
+#     geom_hline(yintercept = percent.ribo_max) + 
+#     #scale_y_continuous(breaks = seq(from=0.1, to=0.9, by=0.1)) +
+#     #scale_x_continuous(breaks = seq(from=0.1, to=0.9, by=0.1)) + 
+#     ggtitle(paste0(sample_ID, ": prop. ribo vs. prop. mito, top ", as.character(n_cells), " barcodes"))
+#   ggsave(filename =  paste0(dir_plots,prefix_data,"_",prefix_run,"_", sample_ID, "_percent.mito_percent.ribo.pdf"), w=12, h=8)
+#   
+#   # Filter data matrix on QC metrics
+#   idx_QC_ok <- metadata[["nCount_RNA"]] >= nCount_RNA_min & 
+#     metadata[["nCount_RNA"]] <= nCount_RNA_max & 
+#     metadata[["nFeature_RNA"]] >= nFeature_RNA_min & 
+#     metadata[["nFeature_RNA"]] <= nFeature_RNA_max & 
+#     metadata[["percent.mito"]] <= percent.mito_max & 
+#     metadata[["percent.ribo"]] <= percent.ribo_max
+#   
+#   if (sum(idx_QC_ok)>=50) {
+#     data_tmp <- data_tmp[,idx_QC_ok]
+#     metadata <- metadata[idx_QC_ok,]
+#     rownames(metadata) <- colnames(data_tmp)
+#     
+#     seurat_obj <- CreateSeuratObject(counts = data_tmp, 
+#                                      project = paste0(prefix_data, "_", prefix_run), 
+#                                      #min.cells = -Inf, 
+#                                      min.features = -Inf, 
+#                                      #normalization.method = "LogNormalize", 
+#                                      #scale.factor = 1e4, 
+#                                      #do.scale=F, 
+#                                      #do.center=F, 
+#                                      meta.data = metadata)
+#     
+#     # We scale and center here as we do not wish to regress out technical confounders before doubletFinder - see preprint p. 9: https://www.biorxiv.org/content/biorxiv/early/2018/06/20/352484.full.pdf 
+#     return(seurat_obj)
+#   } else {
+#     warning (paste0(sample_ID, " had fewer than 50 cells after QC and was discarded"))
+#     return(NULL)
+#   }
+# }
+# 
+# message("Loading data")
+# 
+# args <- list("dir_sample" = dirs_sample, 
+#              "sample_ID" = sample_IDs, 
+#              "n_cells" = n_cells_recovered)
+# 
+# list_seurat_obj <- safeParallel(fun=fun, 
+#                                 args=args,
+#                                 simplify=F,
+#                                 outfile=outfile, 
+#                                 dir_plots=dir_plots, 
+#                                 prefix_data=prefix_data,
+#                                 prefix_run=prefix_run,
+#                                 nCount_RNA_min=nCount_RNA_min,
+#                                 nCount_RNA_max=nCount_RNA_max, 
+#                                 nFeature_RNA_min=nFeature_RNA_min, 
+#                                 nFeature_RNA_max=nFeature_RNA_max, 
+#                                 percent.ribo_max=percent.ribo_max, 
+#                                 percent.mito_max=percent.mito_max,
+#                                 use_filtered_feature_bc_matrix=use_filtered_feature_bc_matrix, 
+#                                 dir_scratch=dir_scratch,
+#                                 n_cells = n_cells_recovered[1]) # needed otherwise not found
 
 names(list_seurat_obj) <- sample_IDs
 
@@ -621,8 +921,10 @@ if (nchar(samples_dropped)>0) {
 # Filter files 
 list_seurat_obj <- list_seurat_obj[idx_sample_ok]
 sample_IDs <- sample_IDs[idx_sample_ok]
-if (length(n_cells_loaded)==length(idx_sample_ok)) n_cells_loaded <- n_cells_loaded[idx_sample_ok]
-if (length(n_cells_recovered)==length(idx_sample_ok)) n_cells_recovered <- n_cells_recovered[idx_sample_ok]
+n_cells_loaded <- n_cells_loaded[idx_sample_ok]
+n_cells_recovered <- n_cells_recovered[idx_sample_ok]
+
+rm(list_data_tmp)
 
 ######################################################################
 ####################### ADD META DATA  ###############################
@@ -655,7 +957,15 @@ list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
 ######################################################################
 
 outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_FindVariableFeatures.txt")
-fun = function(seurat_obj) FindVariableFeatures(object = seurat_obj)
+fun = function(seurat_obj) tryCatch({FindVariableFeatures(object = seurat_obj,
+                                                nfeatures = nAnchorFeatures,
+                                                selection.method="vst")}, 
+                                    error= function(err) {
+                                      message("FindVariableFeatures failed with selection.method='vst', trying with 'mean.var.plot'")
+                                      FindVariableFeatures(object = seurat_obj,
+                                                           nfeatures = nAnchorFeatures,
+                                                           selection.method="mean.var.plot")
+                                    })
 args = list("X"=list_seurat_obj)
 list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
 
@@ -672,24 +982,13 @@ list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
 outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_ScaleData.txt")
 fun = function(seurat_obj) ScaleData(object = seurat_obj, 
                                      vars.to.regress = vars.to.regress, 
-                                     do.scale = T, 
-                                     do.center=T,
+                                     features= VariableFeatures(seurat_obj),
                                      block.size=15000,
-                                     min.cells.to.block=5000)
+                                     min.cells.to.block=5000,
+                                     verbose=T)
 args = list("X"=list_seurat_obj)
-list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
-
-# list_seurat_obj <- lapply(X=list_seurat_obj, 
-#                           FUN = function(seurat_obj) {
-#                             ScaleData(object = seurat_obj,
-#                                       vars.to.regress = vars.to.regress, 
-#                                       do.scale = T, 
-#                                       do.center=T, 
-#                                       display.progress = T, 
-#                                       do.par = T, 
-#                                       num.cores = n_cores)})
-#invisible(gc())
-
+#list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
+list_seurat_obj <- lapply(FUN = fun, X =args[[1]])#
 ######################################################################
 ################################ DO PCA ##############################
 ######################################################################
@@ -885,14 +1184,15 @@ if ((!is.null(merge_group_IDs) | !is.null(merge_specify)) & length(list_seurat_o
   
   list_seurat_merged <- lapply(list_list_seurat_to_merge, function(list_seurat_to_merge) {
     
-    for (i in 1:length(list_seurat_to_merge)) {
-      colnames(GetAssayData(object=list_seurat_to_merge[[i]], slot="scale.data")) <- colnames(x=list_seurat_to_merge[[i]]) <- paste0(i, "_", colnames(list_seurat_to_merge[[i]]))
-      if (i == 1) {
-        seurat_merged <- list_seurat_to_merge[[i]]
-      } else {
-        seurat_merged <- merge(x = seurat_merged, 
-                               y = list_seurat_to_merge[[i]],
-                               add.cell.ids=NULL,
+    # for (i in 1:length(list_seurat_to_merge)) {
+    #   colnames(x=list_seurat_to_merge[[i]]@assays$RNA@scale.data) <- colnames(x=list_seurat_to_merge[[i]]@assays$RNA@data) <- 
+    #     colnames(x=list_seurat_to_merge[[i]]@assays$RNA@counts) <- paste0(i, "_", colnames(list_seurat_to_merge[[i]]))
+    #   if (i == 1) {
+    #     seurat_merged <- list_seurat_to_merge[[i]]
+    #   } else {
+        seurat_merged <- merge(x=list_seurat_to_merge[[1]],#x = seurat_merged, 
+                               y = list_seurat_to_merge[2:length(list_seurat_to_merge)],
+                               add.cell.ids=paste0(names(list_seurat_to_merge)),
                                project = paste0(prefix_data, "_", prefix_run),
                                merge.data=F,
                                min.cells = -Inf,
@@ -901,8 +1201,8 @@ if ((!is.null(merge_group_IDs) | !is.null(merge_specify)) & length(list_seurat_o
                                do.scale=F,
                                do.center=F)
                                      #add.cell.id2 = names(list_seurat_to_merge)[i])
-      }
-    }
+    #   }
+    # }
     return(seurat_merged) 
   })
 
@@ -914,7 +1214,8 @@ if ((!is.null(merge_group_IDs) | !is.null(merge_specify)) & length(list_seurat_o
   
   list_seurat_obj <- mapply(function(seurat_obj, merge_ID)
   { seurat_obj$merge_ID <- rep(merge_ID,  times=ncol(GetAssayData(object=seurat_obj)))
-  return(seurat_obj)}, 
+  return(seurat_obj)
+  }, 
   seurat_obj = list_seurat_obj,
   merge_ID = names(list_seurat_obj), SIMPLIFY=F)
 }
@@ -928,27 +1229,28 @@ if (!is.null(merge_group_IDs) | !is.null(merge_specify)) {
   
   fun = function(seurat_obj) NormalizeData(object=seurat_obj)
   args = list("X"=list_seurat_obj)
-  list_seurat_obj <- safeParallel(fun=fun, args=args)
+  list_seurat_obj <- lapply(FUN=fun, "X"=args[[1]])
   
   ######################################################################
-  ########### SCALE, CENTER, REGRESS OUT CONFOUNDERS ###################
+  ####################### SCALE, CENTER ################################
   ######################################################################
   
-  if (is.null(RAM_Gb_max)) RAM_Gb_max=200
-  additional_Gb = max(as.numeric(sapply(list_seurat_obj, FUN = function(x) object.size(x), simplify = T)))/1024^3
-  obj_size_Gb <- as.numeric(sum(sapply(ls(envir = .GlobalEnv), function(x) object.size(x=eval(parse(text=x)))))) / 1024^3
-  n_cores <- max(1, min(detectCores()%/%3, RAM_Gb_max %/% (obj_size_Gb + additional_Gb))-1)
-  n_cores <- min(n_cores, length(list_seurat_obj))
+  # if (is.null(RAM_Gb_max)) RAM_Gb_max=200
+  # additional_Gb = max(as.numeric(sapply(list_seurat_obj, FUN = function(x) object.size(x), simplify = T)))/1024^3
+  # obj_size_Gb <- as.numeric(sum(sapply(ls(envir = .GlobalEnv), function(x) object.size(x=eval(parse(text=x)))))) / 1024^3
+  # n_cores <- max(1, min(detectCores()%/%3, RAM_Gb_max %/% (obj_size_Gb + additional_Gb))-1)
+  # n_cores <- min(n_cores, length(list_seurat_obj))
   
   list_seurat_obj <- lapply(X=list_seurat_obj, 
                             FUN = function(seurat_obj) {
                               ScaleData(object = seurat_obj,
                                         #vars.to.regress = vars.to.regress, 
-                                        do.scale = T, 
-                                        do.center=T, 
-                                        display.progress = T, 
-                                        do.par = T, 
-                                        num.cores = n_cores)})
+                                        block.size=15000,
+                                        min.cells.to.block=5000,
+                                        verbose=T) 
+                                        #do.par = T, 
+                                        #num.cores = n_cores)
+                              })
   invisible(gc())
   
   ######################################################################
@@ -956,20 +1258,20 @@ if (!is.null(merge_group_IDs) | !is.null(merge_specify)) {
   ######################################################################
   
   outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_FindVariableFeatures.txt")
-  fun = function(seurat_obj) FindVariableFeatures(object = seurat_obj, do.plot=F)
+  fun = function(seurat_obj) FindVariableFeatures(object = seurat_obj, 
+                                                  do.plot=F,
+                                                  nfeatures = nAnchorFeatures)
   args = list("X"=list_seurat_obj)
   list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
   
 }
 ######################################################################
-######################### DO ALIGNMENT ###############################
+######################### DO INTEGRATION #############################
 ######################################################################
-# TODO
-#save.image(paste0(dir_RObjects, prefix_data, "_", prefix_run, "_tmp_pre_alignment_session_image.Rdata.gz"), compress="gzip")
 
 if ((!is.null(align_group_IDs) | !is.null(align_specify)) & length(list_seurat_obj)>1) {
   
-  message("Aligning datasets")
+  message("Integrating datasets")
   
   list_seurat_align = NULL
   
@@ -1004,10 +1306,8 @@ if ((!is.null(align_group_IDs) | !is.null(align_specify)) & length(list_seurat_o
   outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_FindAchors.txt")
   fun = function(list_seurat_obj_tmp, name) {
     tryCatch({
-      k.anchor=5
-      k.filter=200
-      k.score=30
       FindIntegrationAnchors(object.list = list_seurat_obj_tmp, 
+                             anchor.features = nAnchorFeatures,
                              dims = 1:n_PC, 
                              k.anchor=k.anchor,
                              k.filter=k.filter,
@@ -1021,11 +1321,12 @@ if ((!is.null(align_group_IDs) | !is.null(align_specify)) & length(list_seurat_o
       message("trying to remove samples with insufficient number of cells")
       list_seurat_obj_tmp <- list_seurat_obj_tmp[idx_ok]
       tryCatch({
-        FindIntegrationAnchors(object.list = list_seurat_obj_tmp, 
-                             dims = 1:n_PC, 
-                             k.anchor=k.anchor,
-                             k.filter=k.filter,
-                             k.score=k.score)}, 
+        FindIntegrationAnchors(object.list = list_seurat_obj_tmp,
+                               anchor.features = nAnchorFeatures,
+                               dims = 1:n_PC, 
+                               k.anchor=k.anchor,
+                               k.filter=k.filter,
+                               k.score=k.score)}, 
                error = function(err1) {
                   message(paste0("FindIntegrationAnchors failed again with error ", err1, ", returning NULL"))
                   return(NULL)
@@ -1039,7 +1340,7 @@ if ((!is.null(align_group_IDs) | !is.null(align_specify)) & length(list_seurat_o
   
   list_anchors <- safeParallel(fun=fun, args=args, outfile=outfile)
   
-  names(list_anchors) <- names(group_list_seurat_obj)
+  names(list_anchors) <- names(group_list_seurat_obj_tmp)
  
   # filter out those groups that failed
   list_anchors <- list_anchors[!all(sapply(list_anchors, is.null))]
@@ -1048,7 +1349,8 @@ if ((!is.null(align_group_IDs) | !is.null(align_specify)) & length(list_seurat_o
   outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_IntegrateData.txt")
   fun = function(anchors, name) {
     tryCatch({
-      IntegrateData(anchorset = anchors, dims = 1:n_PC)
+      IntegrateData(anchorset = anchors, 
+                    dims = 1:n_PC)
     }, error=function(err) {
       message(paste0(name, ": dropped because IntegrateData failed with error ", err))
       return(NULL)
@@ -1078,7 +1380,7 @@ if (!is.null(align_group_IDs) | !is.null(align_specify)) {
     seurat_obj <- ScaleData(object = seurat_obj, 
                             block.size=15000,
                             min.cells.to.block = 10000,
-                            verbose = FALSE)
+                            verbose = T)
   
   }
   args=list("seurat_obj" = list_seurat_obj, 
@@ -1088,14 +1390,16 @@ if (!is.null(align_group_IDs) | !is.null(align_specify)) {
 }
 
 ######################################################################
-####### FIND HIGHLY VAR FEATURES (AFTER MERGING) #########
+####### FIND HIGHLY VAR FEATURES (AFTER MERGING) ####################
 ######################################################################
 
 if (!is.null(merge_specify) | !is.null(merge_group_IDs)) {
   
   outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_FindVariableFeatures.txt")
   fun = function(seurat_obj) {
-      FindVariableFeatures(object = seurat_obj, do.plot=F)
+      FindVariableFeatures(object = seurat_obj, 
+                           do.plot=F,
+                           nfeatures = nAnchorFeatures)
     }
   args = list("X" = list_seurat_obj)
   list_seurat_obj <- safeParallel(fun=fun,args=args, outfile=outfile)
@@ -1140,9 +1444,6 @@ if (!is.null(align_group_IDs) | !is.null(align_specify) !is.null(merge_group_IDs
 ############################ JACKSTRAW ###############################
 ######################################################################
 
-#TODO remove
-#save.image(paste0(dir_RObjects, prefix_data, "_", prefix_run, "_tmp_pre_jackstraw_session_image.Rdata.gz"), compress="gzip")
-
 if (use_jackstraw) {
   message("Using Jackstraw resampling to determine significant principal components")
   
@@ -1179,40 +1480,43 @@ if (use_jackstraw) {
 ############################ T-SNE ###################################
 ######################################################################
 
-message("Computing t-SNE")
-
-fun =  function(seurat_obj, obj_name, PC_signif_idx) {
-  n_comp = n_PC#if (is.null(align_group_IDs) & is.null(align_specify)) n_PC else n_CC
-  perplexity1 = min(30, min(n_comp,ncol(GetAssayData(object=seurat_obj)))%/%1.5)
-  tryCatch({RunTSNE(object = seurat_obj, 
-                    tsne.method="Rtsne",
-                    reduction = "pca",#if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned", 
-                    dims= (1:n_comp)[PC_signif_idx], # no need to use all PCs for t-SNE
-                    seed.use = randomSeed,
-                    #do.fast=T,
-                    perplexity=perplexity1,
-                    check_duplicates=F)
-  }, error = function(err1) {
-    perplexity2 = min(30, min(n_comp,ncol(GetAssayData(object=seurat_obj)))%/%2.5)
-    warning(paste0(obj_name, ": RunTSNE failed with error: ", err1, ", using perplexity ", perplexity1, ". Maybe due to cell count: ", dim(GetAssayData(object=seurat_obj))[2], ". Trying with perplexity ", perplexity2))
+if (is.null(path_transferLabelsRef)) { # if not we'll compute later anyway
+  
+  message("Computing t-SNE")
+  
+  fun =  function(seurat_obj, obj_name, PC_signif_idx) {
+    n_comp = n_PC#if (is.null(align_group_IDs) & is.null(align_specify)) n_PC else n_CC
+    perplexity1 = min(30, min(n_comp,ncol(GetAssayData(object=seurat_obj)))%/%1.5)
     tryCatch({RunTSNE(object = seurat_obj, 
+                      tsne.method="Rtsne",
                       reduction = "pca",#if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned", 
-                      dims = (1:n_comp)[PC_signif_idx], # no need to use all PCs for t-SNE
-                      #do.fast=T,
+                      dims= (1:n_comp)[PC_signif_idx], # no need to use all PCs for t-SNE
                       seed.use = randomSeed,
-                      perplexity = perplexity2,
+                      #do.fast=T,
+                      perplexity=perplexity1,
                       check_duplicates=F)
-    }, error= function(err2) {
-      warning(paste0("RunTSNE failed again with error ", err2, ", returning original seurat object"))
-      seurat_obj})
-    })
-  }
-outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_TSNE2.txt")
-args=list("seurat_obj"=list_seurat_obj,
-          "obj_name" = names(list_seurat_obj), 
-          "PC_signif_idx" = list_PC_signif_idx)
-list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
+    }, error = function(err1) {
+      perplexity2 = min(30, min(n_comp,ncol(GetAssayData(object=seurat_obj)))%/%2.5)
+      warning(paste0(obj_name, ": RunTSNE failed with error: ", err1, ", using perplexity ", perplexity1, ". Maybe due to cell count: ", dim(GetAssayData(object=seurat_obj))[2], ". Trying with perplexity ", perplexity2))
+      tryCatch({RunTSNE(object = seurat_obj, 
+                        reduction = "pca",#if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned", 
+                        dims = (1:n_comp)[PC_signif_idx], # no need to use all PCs for t-SNE
+                        #do.fast=T,
+                        seed.use = randomSeed,
+                        perplexity = perplexity2,
+                        check_duplicates=F)
+      }, error= function(err2) {
+        warning(paste0("RunTSNE failed again with error ", err2, ", returning original seurat object"))
+        seurat_obj})
+      })
+    }
+  outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_TSNE2.txt")
+  args=list("seurat_obj"=list_seurat_obj,
+            "obj_name" = names(list_seurat_obj), 
+            "PC_signif_idx" = list_PC_signif_idx)
+  list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile)
 
+}
 ######################################################################
 ############################ FIND CLUSTERS ###########################
 ######################################################################
@@ -1277,6 +1581,140 @@ if (!is.null(res_primary)) {
     list_seurat_obj <- safeParallel(fun=fun, args=args, outfile=outfile, res_primary=res_primary, randomSeed=randomSeed)
   }
 }
+
+######################################################################
+######################### TRANSFER LABELS ############################
+######################################################################
+
+if (!is.null(path_transferLabelsRef)) {
+  seuratObjRef <- load_obj(path_transferLabelsRef)
+  
+  if (length(seuratObjRef@assays$RNA@var.features)==0) {
+    seuratObjRef <- FindVariableFeatures(object=seuratObjRef,
+                                         selection.method="vst",
+                                         nfeatures = nAnchorFeatures,
+                                         verbose=T)
+  }
+  
+  if (any(seuratObjRef@meta.data$percent.mito, is.null)) {
+    # Compute and add percent mito and percent ribo as metadata
+    mito.genes <- grepl(pattern = "^mt-", x = rownames(seuratObjRef), ignore.case=T)
+    ribo.genes <- grepl(pattern = "^Rp[sl][[:digit:]]", x = rownames(seuratObjRef), ignore.case=T)
+    colSums_tmp <- colSums(x = seuratObjRef@assays$RNA@counts)
+    
+    metadata <- data.frame(percent.mito=colSums(x = seuratObjRef@assays$RNA@counts[mito.genes,])/colSums_tmp, 
+                           percent.ribo = colSums(x = seuratObjRef@assays$RNA@counts[ribo.genes,])/colSums_tmp, 
+                           rownames=colnames(seuratObjRef))
+    
+    seuratObjRef <- AddMetaData(object=seuratObjRef, metadata=metadata)
+  }
+  
+  if (all(dim(seuratObjRef@assays$RNA@data)==0)) {
+    seuratObjRef <- NormalizeData(seuratObjRef)
+  }
+  
+  if (all(dim(seuratObjRef@assays$RNA@scale.data))==0) {
+    seuratObjRef <- ScaleData(seuratObjRef,
+                              #vars.to.regress=vars.to.regress,
+                              block.size=15000,
+                              min.cells.to.block=5000,
+                              verbose=T)
+  }
+  
+  if (is.null(seuratObjRef@reductions$pca)) { 
+    seuratObjRef <- RunPCA(object= seuratObjRef,
+                           npcs= n_PC,
+                           weight.by.var=T,
+                           verbose=F,
+                           seed.use = randomSeed)
+  }
+  
+  fun = function(seuratObjQuery) {
+    anchors <- tryCatch({
+      FindTransferAnchors(reference = seuratObjRef, 
+                         query = seuratObjQuery,
+                         reduction = "pcaproject",
+                         npcs = n_PC,
+                         l2.norm=TRUE,
+                         dims= 1:ncol(Embeddings(object=seuratObjRef, reduction="pca")), 
+                         k.anchor = k.anchor,
+                         k.filter = k.filter,
+                         k.score = k.score,
+                         max.features=max.features, #default
+                         verbose=T)
+      }, error = function(err) {
+       message(paste0("FindTransferAnchors failed with error ", err))
+        if (ncol(seuratObjQuery)<=max(k.anchor, k.filter, k.score)) {
+          c(k.anchor, k.filter, k.score)[which.max(k.anchor, k.filter, k.score)] <- ncol(seuratObjQuery)
+        }
+        FindTransferAnchors(reference = seuratObjRef, 
+                            query = seuratObjQuery, 
+                            project.query = T, # this is the second difference
+                            reduction = "pcaproject",
+                            npcs = n_PC,
+                            l2.norm=TRUE,
+                            dims= 1:ncol(Embeddings(object=seuratObjRef, reduction="pca")), 
+                            k.anchor = k.anchor,
+                            k.filter = k.filter,
+                            k.score = k.score,
+                            max.features=max.features, #default
+                            verbose=T)
+     })
+
+    predictions <- TransferData(anchorset = anchors, 
+                                refdata = seuratObjRef[[colLabels]][,1], 
+                                reduction = "pcaproject",
+                                l2.norm=TRUE,
+                                dims= 1:ncol(Embeddings(object=seuratObjRef, reduction="pca")), 
+                                k.weight = k.weight,
+                                sd.weight = sd.weight,
+                                verbose=T)
+    
+    seuratObjQuery <- AddMetaData(object=seuratObjQuery, 
+                                metadata=predictions)
+    
+    # Subset out cells with poor predictions
+    if (sum(seuratObjQuery@meta.data$prediction.score.max < minPredictionScore)>0) {
+      idx <- seuratObjQuery@meta.data$prediction.score.max >= minPredictionScore
+      seuratObjQuery <- subset(x= seuratObjQuery, 
+                               subset = prediction.score.max>=minPredictionScore)
+    
+
+    #Idents(seuratObjQuery) <- seuratObjQuery@meta.data$predicted.id
+
+      seuratObjQuery <- ScaleData(seuratObjQuery,
+                                #vars.to.regress=vars.to.regress,
+                                do.scale=T,
+                                do.center=T,
+                                block.size=15000,
+                                min.cells.to.block=5000,
+                                verbose=T)
+      
+      seuratObjQuery <- RunPCA(object= seuratObjQuery,
+                             npcs= n_PC,
+                             weight.by.var=T,
+                             verbose=F,
+                             seed.use = randomSeed)
+      
+      perplexity1 = min(30, min(ncol(Embeddings(object=seuratObjQuery, reduction="pca")),
+                                ncol(GetAssayData(object=seuratObjQuery)))%/%1.5)
+
+      seuratObjQuery <- RunTSNE(object = seuratObjQuery, 
+                                reduction = "pca", 
+                                dims = 1:min(30,ncol(Embeddings(object=seuratObjQuery, reduction="pca"))), # no need to use all PCs for t-SNE
+                                seed.use = randomSeed,
+                                check_duplicates=F,
+                                #do.fast=T,
+                                perplexity=perplexity1)
+      
+    }
+    
+    return(seuratObjQuery)
+  }
+  args = list("X"=list_seurat_obj)
+  list_seurat_obj <- safeParallel(fun=fun, args=args)
+}
+
 ######################################################################
 ####################### FIND CLUSTER MARKERS #########################
 ######################################################################
@@ -1345,13 +1783,26 @@ invisible(mapply(function(seurat_obj, name) {
                 no.legend=F, 
                 plot.title=paste0(name, " by sample"))
   ggsave(p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_tSNEPlot_sample.pdf"), w=10, h=10)
+  
   if (!is.null(res_primary)) {
     p2 <- DimPlot(object=seurat_obj, 
                   label = T, 
                   pt.size = 1, 
                   no.legend = F, 
+                  group.by = paste0("clust.res.",res_primary),
                   plot.title = paste0(name, " by cluster")) # + xlab("t-SNE 1") + ylab("t-SNE 2"
     ggsave(p2, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_tSNEPlot_clust.pdf"), w=10, h=10)
+  }
+  
+  
+  if (!is.null(seurat_obj@meta.data$predicted.id)) {
+    p3 <- DimPlot(object=seurat_obj, 
+                  label = T, 
+                  pt.size = 1, 
+                  no.legend = F, 
+                  group.by = "predicted.id",
+                  plot.title = paste0(name, " by transferred label")) # + xlab("t-SNE 1") + ylab("t-SNE 2"
+    ggsave(p3, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_tSNEPlot_clust_transferlabel.pdf"), w=10, h=10)
   }
   # p1 <- TSNEPlot(seurat_obj, do.return = T, pt.size = 1, group.by = "condition", no.legend=F, plot.title=paste0(name, " by condition"))
   # ggsave(p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_tSNEPlot_condition.pdf"), w=10, h=10)
@@ -1449,17 +1900,17 @@ if (run_SoupX) {
 
 ########################## VIOLIN PLOTS ##############################
 
-message("making nUMI and percent.mito and percent.ribo violin plots by sample")
+message("making nCount_RNA and percent.mito and percent.ribo violin plots by sample")
 invisible(mapply(function(seurat_obj, name) {
   VlnPlot(object = seurat_obj, 
-          features = "nUMI", 
+          features = "nCount_RNA", 
           #do.sort = F, 
           same.y.lims=T, 
           #legend.position = "bottom", 
           #single.legend = F, 
           #do.return=T, 
           group.by = "sample_ID")
-  ggsave(filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_nUMI_VlnPlot_sample.pdf"), w=10, h=10)
+  ggsave(filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_nCount_RNA_VlnPlot_sample.pdf"), w=10, h=10)
   VlnPlot(object = seurat_obj, 
           features = "percent.mito", 
           #do.sort = F, 
@@ -1500,6 +1951,23 @@ invisible(mapply(function(seurat_obj, name){
   ggsave(filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_cluster_per_sample.pdf"), w=24, h=15)
 }, seurat_obj = list_seurat_obj, name=names(list_seurat_obj),SIMPLIFY=F))
 
+
+if (!is.null(path_transferLabelsRef)) {
+  message("plotting sample proportions in each cluster and cluster proportions for each sample")
+  invisible(mapply(function(seurat_obj, name){
+    df = data.frame("sample_ID" =as.character(seurat_obj$sample_ID), "predicted.id"=as.character(seurat_obj@meta.data$predicted.id))
+    
+    ggplot(df, aes(sample_ID, predicted.id)) + geom_bar(stat = "identity") + facet_wrap(.~predicted.id) 
+    ggsave(filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_samples_per_predicted.id.pdf"), w=24, h=15)
+    
+    ggplot(df, aes(predicted.id, sample_ID)) + geom_bar(stat = "identity") + facet_wrap(.~sample_ID) 
+    theme(strip.text.x = element_text(size=8, angle=75),
+          strip.text.y = element_text(size=12, face="bold"),
+          strip.background = element_rect(colour="red", fill="#CCCCFF"))
+    ggsave(filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_predicted.id_per_sample.pdf"), w=24, h=15)
+  }, seurat_obj = list_seurat_obj, name=names(list_seurat_obj),SIMPLIFY=F))
+  
+}
 ######################################################################
 ########################## OUTPUT TABLES, ROBJECTS ###################
 ######################################################################
@@ -1507,23 +1975,23 @@ invisible(mapply(function(seurat_obj, name){
 if (!is.null(res_primary)) {
   ############################## CLUSTER GENE MARKERS ##################
   message("Writing out gene markers")
-  invisible(mapply(function(markers, name) {
-    tryCatch({
-      #if(file.exists(paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.xlsx"))) file.remove(paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.xlsx"))
-      xlsx::write.xlsx2(x = markers,
-                        file = paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.xlsx"),
-                        sheetName = name,
-                        col.names = T,
-                        row.names = T, 
-                        append = T)
+
+  # invisible(tryCatch({
+  #   xlsx::write.xlsx2(x = list_markers,
+  #                     file = paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.xlsx"))}, error =function(err){ 
+  #   message(paste0("xlsx failed with error", err))
+  #   write.csv(markers, file=paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.csv"), quote = F, row.names=T)
+  # }))
+  
+  tryCatch({
+      openxlsx::write.xlsx(x = list_markers,
+                          file = paste0(dir_tables, prefix_data, "_", prefix_run, "_markers.xlsx"))
     }, error =function(err){ 
-      message(paste0("xlsx failed with error", err))
-      write.csv(markers, file=paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.csv"), quote = F, row.names=T)
-      
+      message(paste0("openxlsx::write.xlsx failed with error", err))
+      invisible(mapply(function(markers,name) write.csv(markers, file=paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.csv"), quote = F, row.names=T), markes=list_markers, name=names(list_seurat_obj), SIMPLIFY=F))
+
     })
-    },
-    markers = list_markers, 
-    name = names(list_seurat_obj), SIMPLIFY=F))
+  
 }
   
 ########################## SAVE SEURAT OBJECTS #######################
@@ -1537,22 +2005,54 @@ invisible(safeParallel(fun=fun, args=args, outfile=outfile))
 
 ########################## SAVE OPTIONS ##############################
 
-params_run <- unlist(opt, recursive=F)# all the user options/defaults
-params_run <- c(c("data"=prefix_data, "run"=prefix_run), params_run)
-matrix(unlist(params_run), nrow=1) %>% as.data.frame(row.names=NULL, stringsAsFactors=F) -> params_run_df
-colnames(params_run_df) <- names(params_run)
-params_run_path = sprintf("%s%s_%s_params_run.tab", dir_log, prefix_data, prefix_run)
-append_params_run = F#file.exists(params_run_path) # NB: if left as NULL, they won't get included!
-write.table(params_run_df, 
-            file=params_run_path, 
-            quote = F, 
-            sep = "\t", 
-            row.names=F, 
-            append = append_params_run, 
-            col.names = !append_params_run)
+# params_run <- unlist(opt, recursive=F)# all the user options/defaults
+# params_run <- c(c("data"=prefix_data, "run"=prefix_run), params_run)
+# matrix(unlist(params_run), nrow=1) %>% as.data.frame(row.names=NULL, stringsAsFactors=F) -> params_run_df
+# colnames(params_run_df) <- names(params_run)
+# params_run_path = sprintf("%s%s_%s_params_run.tab", dir_log, prefix_data, prefix_run)
+# append_params_run = F#file.exists(params_run_path) # NB: if left as NULL, they won't get included!
+# write.table(params_run_df, 
+#             file=params_run_path, 
+#             quote = F, 
+#             sep = "\t", 
+#             row.names=F, 
+#             append = append_params_run, 
+#             col.names = !append_params_run)
+
+######################################################################
+############### LOG PARAMETERS AND FILE VERSION ######################
+######################################################################
+
+as.character(Sys.time()) %>% gsub("\\ ", "_",.) %>% gsub("\\:", ".", .) ->tStop
+
+if (is.null(path_runLog)) path_runLog <- paste0(dirLog, "_preservation_runLog.txt")
+
+dirCurrent = paste0(LocationOfThisScript(), "/") # need to have this function defined
+setwd(dirCurrent) # this should be a git directory
+
+# get the latest git commit
+gitCommitEntry <- try(system2(command="git", args=c("log", "-n 1 --oneline"), stdout=TRUE))
+
+# Write to text file
+cat(text = "\n" , file =  path_runLog, append=T, sep = "\n")
+cat(text = "##########################" , file =  path_runLog, append=T, sep = "\n")
+
+cat(text = prefixOut , file =  path_runLog, append=T, sep = "\n")
+cat(sessionInfo()[[1]]$version.string, file=path_runLog, append=T, sep="\n")
+if (!"try-error" %in% class(gitCommitEntry)) cat(text = paste0("git commit: ", gitCommitEntry) , file =  path_runLog, append=T, sep = "\n")
+cat(text = paste0("tStart: ", tStart) , file =  path_runLog, append=T, sep = "\n")
+cat(text = paste0("tStop: ", tStop) , file =  path_runLog, append=T, sep = "\n")
+
+# output parameters (assumping use of optparse package)
+cat(text = "\nPARAMETERS: " , file =  path_runLog, append=T, sep = "\n")
+for (i in 1:length(opt)) {
+  cat(text = paste0(names(opt)[i], "= ", opt[[i]]) , file =  path_runLog, append=T, sep = "\n")
+}
+
+cat(text = "##########################" , file =  path_runLog, append=T, sep = "\n")
 
 ######################################################################
 ############################### WRAP UP ##############################
 ######################################################################
-
+save.image(file = paste0(dir_out, prefix_data, "_", prefix_run,"_finalSessionImage.RData.gz"), compress="gzip")
 message("Script done!")
