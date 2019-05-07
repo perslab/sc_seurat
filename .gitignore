@@ -1,3 +1,5 @@
 # Untracked files:
 
 /projects/jonatan/tools/seurat-src/installfiles
+.Rproj.user
+packrat/lib*/
