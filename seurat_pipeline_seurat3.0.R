@@ -1140,15 +1140,12 @@ fun = function(seurat_obj, name) {
   vec_logicVarsOK <- sapply(vars.to.regress, function(eachVar){
     if (!is.null(seurat_obj[[eachVar]])) !all(sapply(seurat_obj[[eachVar]], is.na)) else F
   })
-  
+  if (!all(vec_logicVarsOK)) warning(paste0("could not regress out ", vars.to.regress[!vec_logicVarsOK]))
   seurat_obj <- ScaleData(object = seurat_obj, 
                           vars.to.regress = vars.to.regress[vec_logicVarsOK],
                           block.size=15000,
                           min.cells.to.block = 10000,
                           verbose = T)
-  
-  if (!all(vec_logicVarsOK)) warning(paste0("could not regress out ", vars.to.regress[!vec_logicVarsOK]))
-  
 }
 args=list("seurat_obj" = list_seurat_obj, 
           "name" = names(list_seurat_obj))
