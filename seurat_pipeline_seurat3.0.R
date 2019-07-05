@@ -77,7 +77,7 @@ option_list <- list(
               help = "align samples by individual sample identifiers? Succeeds any sample merge. Similar to align_group_IDs, but specifying samples in each group by matching strings. Takes a list of vectors of sample identifiers, named by desired group identifier. The whole list should be in quotes (single if using double inside, and vice versa). E.g. ''list(colon=c('1_GF', '2_CR'), ileum=c('3_GF', '4_CR'))'', [default %default]"), 
   make_option("--nAnchorFeatures", type="integer", default = 2000,
               help = "How many features (e.g. genes) to use when integrating/aligning datasets [default %default]"), 
-  make_option("--n_comp", type="integer", default = 30L,
+  make_option("--n_comp", type="integer", default = 40L,
               help = "How many principal and canonical correlation components?  [default %default]"),
   make_option("--use_jackstraw", type="logical", default = TRUE,
               help = "Use Jackstraw resampling to select subset of PCs with significant gene loadings? May improve results but slow [default %default]"),
@@ -102,22 +102,57 @@ option_list <- list(
 )
 
 ######################################################################
+######################### GET CURRENT DIRECTORY ######################
+######################################################################
+
+# TODO: replace with here() package
+
+LocationOfThisScript = function() # Function LocationOfThisScript returns the location of this .R script (may be needed to source other files in same dir)
+{
+  #' @usage returns the current location of the script
+  #' @value directory of the script, character
+  
+  if (interactive()) {
+    stop("LocationOfThisScript does not work in interactive sessions")
+  }
+  
+  this.file = NULL
+  # This file may be 'sourced'
+  for (i in -(1:sys.nframe())) {
+    if (identical(sys.function(i), base::source)) this.file = (normalizePath(sys.frame(i)$ofile))
+  }
+  
+  if (!is.null(this.file)) return(dirname(this.file))
+  
+  # But it may also be called from the command line
+  cmd.args = commandArgs(trailingOnly = FALSE)
+  cmd.args.trailing = commandArgs(trailingOnly = TRUE)
+  cmd.args = cmd.args[seq.int(from=1, length.out=length(cmd.args) - length(cmd.args.trailing))]
+  res = gsub("^(?:--file=(.*)|.*)$", "\\1", cmd.args)
+  
+  # If multiple --file arguments are given, R uses the last one
+  res = tail(res[res != ""], 1)
+  if (0 < length(res)) return(dirname(res))
+  
+  # Both are not the case. Maybe we are in an R GUI?
+  return(NULL)
+}
+
+dir_current = LocationOfThisScript()
+#dir_current = getwd()
+
+######################################################################
 ######################### UTILITY FUNCTIONS ##########################
 ######################################################################
-  
-source(file="/projects/jonatan/tools/functions-src/utility-functions-src/utility_functions.R")
+
+source(file=paste0(dir_current, "/perslab-sc-library/utility_functions.R"))
+source(file=paste0(dir_current, "/perslab-sc-library/functions_sc.R"))
 
 ######################################################################
 ########################### PACKAGES #################################
 ######################################################################
 
 ipak(c("devtools", "optparse", "Matrix", "Matrix.utils", "Seurat", "ggplot2", "scales", "dplyr", "parallel", "reshape", "reshape2", "cowplot"))#, "pSI", "loomR", "doubletFinder")
-
-######################################################################
-########################### SC FUNCTIONS #############################
-######################################################################
-
-source(file="/projects/jonatan/tools/functions-src/sc-functions-src/functions_sc.R")
 
 ######################################################################
 ########################### GET OPTIONS ##############################
@@ -176,8 +211,10 @@ if (!is.null(res_primary)) ipak(c("openxlsx"))
 
 if (run_SoupX) {
   devtools::install_github(repo="constantAmateur/SoupX", dependencies=NA, upgrade = "never")
+  library(SoupX)
   if (is.null(SoupX_genes)){
     devtools::install_github("zy26/LTMGSCA", dependencies=NA, upgrade = "never")
+    library(LTMGSCA)
   }
 }
 
@@ -213,7 +250,6 @@ if (!file.exists(dir_log)) dir.create(dir_log)
 
 dir_scratch = "/scratch/tmp-seurat/"
 
-dir_current <- paste0(LocationOfThisScript(), "/")
 #dir_current <- "/projects/jonatan/tools/seurat-src/"
 
 flag_date = substr(gsub("-","",as.character(Sys.Date())),3,1000)
@@ -345,7 +381,7 @@ if (any(n_cells_loaded<n_cells_recovered)) stop("n_cells_recovered cannot exceed
 if (!is.null(dirs_project_10x)) {
   # call Read10X
   outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_Read10X.txt")
-  list_data_tmp <- safeParallel(arg=list("dir_sample"=dirs_sample), fun=Read10X, outfile=outfile)
+  list_data_tmp <- safeParallel(list_iterable=list("dir_sample"=dirs_sample), fun=Read10X, outfile=outfile)
 
 } else {
   # if expression data files are in a different format than that output by 10x Genomics cellranger, e.g. as matrices 
@@ -386,7 +422,9 @@ if (run_SoupX & use_filtered_feature_bc_matrix)  {
   list_iterable = list("dir_sample"=dirs_sample, "data_tmp"=list_data_tmp)
   outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_get_filtered_cell_idx.txt")
   
-  list_cellIdx <- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile)
+  list_cellIdx <- safeParallel(fun=fun, 
+                               list_iterable=list_iterable, 
+                               outfile=outfile)
   
 } else if (!use_filtered_feature_bc_matrix) {
   # whether or not we use SoupX
@@ -482,22 +520,24 @@ if (run_SoupX) {
         nonExpressedGenes_useful <- scl$channels[[sample_ID]]$nonExpressedGenes[scl$channels[[sample_ID]]$nonExpressedGenes$isUseful,]
         nonExpressedGenes_useful <- nonExpressedGenes_useful[order(nonExpressedGenes_useful$extremity, decreasing = T),]
         
-        if (!sum(nonExpressedGenes_useful$extremity>0.7)>1) return(NA) 
+        if (sum(nonExpressedGenes_useful$extremity>0.7)<=1) return(NA) 
         
         topgenes <- rownames(nonExpressedGenes_useful)[nonExpressedGenes_useful$extremity>0.7]
         topgenes <- topgenes[1:min(10, length(topgenes))]
         
-        
+        # tag log of sparse matrix, avoiding error due to large size
         fun <- function(bigSpMat){
           submat1 <- bigSpMat[,1:(ncol(bigSpMat)%/%2)]
           submat1 <- submat1 %>% as.matrix %>% log 
           submat2 <- bigSpMat[,(ncol(bigSpMat)%/%2+1):ncol(bigSpMat)]
           submat2 <- submat2 %>% as.matrix %>% log 
-          cbind(submat1, submat2)
+          mat_out <- cbind(submat1, submat2)
+          mat_out[is.infinite(mat_out)] <- 0
+          return(mat_out)
           }
         toc_log <- fun(scl$toc)#log(as.matrix(scl$toc))
         
-        list_fits <- lapply(topgenes, function(genes) SeparateKRpkmNew(x=toc_log[genes,, drop=F], n=100,q=0,k=2,err = 1e-10))
+        list_fits <- lapply(topgenes, function(genes) LTMGSCA::SeparateKRpkmNew(x=toc_log[genes,, drop=F], n=100,q=0,k=2,err = 1e-10))
         idx_topgenes_ok <- sapply(list_fits, function(fit) fit[2,1]>0.4)
         topgenes <- topgenes[idx_topgenes_ok]
         
@@ -515,7 +555,7 @@ if (run_SoupX) {
   }
   
   # If we have some suitable genes to estimate ambient RNA contamination, filter the expression matrix
-  if (!all(sapply(list_topgenes, function(vec_topgenes) all(is.na(vec_topgenes)), simplify = T))) {
+  if (!any(sapply(list_topgenes, function(vec_topgenes) all(is.na(vec_topgenes)), simplify = T))) {
     fun = function(data_tmp, sample_ID, topgenes) {
       if (all(is.na(topgenes))) return(data_tmp)
       tryCatch({
@@ -713,7 +753,7 @@ if (rm_sc_multiplets) {
   ######################### FIND DOUBLETS ##############################
   ######################################################################
   
-  message("Detecting doublets")
+  message("Detecting single cell multiplets")
   
   ######################################################################
   ############################### DOUBLETFINDER ########################
@@ -832,7 +872,7 @@ if (rm_sc_multiplets) {
   }
   list_iterable=list("seu" = list_seurat_obj, "seu_wdoublets"=list_seurat_obj_wfakeDoub, "real.cells"=list_real.cells)
   outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_doubletNNandPredict.txt")   
-  list_seurat_obj <- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile)
+  list_seurat_obj <- safeParallel(fun=fun, list_iterable=list_iterable, timeout = 12000, outfile=outfile)
   
   # doublet rate data source: 10x https://pdfs.semanticscholar.org/presentation/0c5c/ad2edbb8f0b78cdba1c78b4324213ac20ab3.pdf
   # Save a log 
@@ -1088,9 +1128,9 @@ if (!is.null(align_group_IDs) | !is.null(align_specify)) {
 ######################################################################
 # See https://satijalab.org/seurat/cell_cycle_vignette.html
 
-if (!is.null(list_cellCycleGenes) & 
-    all(!is.na(list_cellCycleGenes)) & 
-    any(c('S.Score', 'G2M.Score','CC.Difference') %in% vars.to.regress)) {
+if (!is.null(paths_cellCycleGenes)) {
+  if (all(!is.na(list_cellCycleGenes)) & 
+      any(c('S.Score', 'G2M.Score','CC.Difference') %in% vars.to.regress)) {
   
   # Compute cell cycle scores using provided genesets
   fun = function(seurat_obj, name) {
@@ -1113,7 +1153,7 @@ if (!is.null(list_cellCycleGenes) &
   }
   list_iterable=list("seurat_obj"=list_seurat_obj, name=names(list_seurat_obj))
   outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_CellCycleScoring.txt")
-  list_seurat_obj <- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile)
+  list_seurat_obj <- safeParallel(fun=fun, list_iterable=list_iterable, timeout=1200, outfile=outfile)
   
   # Visualize the distribution of cell cycle markers 
   invisible(sapply(function(seurat_obj,name) {
@@ -1131,6 +1171,7 @@ if (!is.null(list_cellCycleGenes) &
     })
   }, seurat_obj=list_seurat_obj, name=names(list_seurat_obj)))
   
+  }
 }
 ######################################################################
 ########################## SCALE DATA ################################
@@ -1170,22 +1211,22 @@ if (!is.null(align_group_IDs) | !is.null(align_specify) | !is.null(merge_group_I
                weight.by.var = F,
                npcs = pcs.compute1, 
                seed.use=randomSeed,
-               verbose=T)
+               verbose=F)
         # project to get loadings for all genes, not just variable
         seurat_obj <- ProjectDim(object = seurat_obj)
-      },   error = function(err) {
+      },   error = function(err1) {
         pcs.compute2=min(n_comp, min(ncol(seurat_obj), length(VariableFeatures(object=seurat_obj)))%/%3)
-        warning(paste0("RunPCA failed using ", pcs.compute1, " components with error ", err1, ", maybe due to cell count: ", dim(GetAssayData(object=seurat_obj))[2], ". Trying with ", pcs.compute2, " components"))
+        warning(paste0("RunPCA failed using ", pcs.compute1, " components with error ", err1, ", maybe due to cell count: ", ncol(seurat_obj), ". Trying with ", pcs.compute2, " components"))
         tryCatch({
           seurat_obj<-RunPCA(object = seurat_obj, 
                          weight.by.var = F,
                          npcs = pcs.compute2, 
                          seed.use=randomSeed,
-                         verbose=T)
+                         verbose=F)
           # project so we get loadings for all genes, not just variable 
           ProjectDim(object = seurat_obj)
         }, error = function(err2) {
-                           warning(paste0(obj_name, ": PCA failed again with ", pcs.compute2, " components with error: ", err2, ". Maybe due to cell count: ", dim(GetAssayData(object=seurat_obj))[2], ". Returning seurat object without PCA"))
+                           warning(paste0(obj_name, ": PCA failed again with ", pcs.compute2, " components with error: ", err2, ". Maybe due to cell count: ", ncol(seurat_obj), ". Returning seurat object without PCA"))
                            seurat_obj})
       })}
   list_iterable = list("seurat_obj"=list_seurat_obj, "obj_name"=names(list_seurat_obj))
@@ -1195,14 +1236,13 @@ if (!is.null(align_group_IDs) | !is.null(align_specify) | !is.null(merge_group_I
 
 ######################################################################
 ############################ JACKSTRAW ###############################
-######################################################################
+#####################################################################
+
+# TODO: what random seed does JackStraw() use? the system seed?
 
 if (use_jackstraw) {
-  
   message("Using Jackstraw resampling to determine significant principal components")
-  
   pvalThreshold = 0.05
-
   list_PC_signif_idx <- mapply(function(seurat_obj, name) {
     tryCatch({
     PC_signif_idx <- rep(TRUE, ncol(Loadings(object=seurat_obj, reduction="pca"))) # default
@@ -1309,7 +1349,12 @@ if (!is.null(res_primary)) {
                      resolution = res)}
       list_iterable= list("X"=res_to_calc)
       
-      list_seurat_obj_res <- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile, seurat_obj=seurat_obj,  randomSeed=randomSeed)
+      list_seurat_obj_res <- safeParallel(fun=fun, 
+                                           list_iterable=list_iterable, 
+                                           outfile=outfile, 
+                                           seurat_obj=seurat_obj,  
+                                           randomSeed=randomSeed,
+                                           timeout= 600)
                                  
       # Save all the cluster assignments as meta data in the original seurat object
       for (i in seq(1:length(res_to_calc))) {
@@ -1869,7 +1914,7 @@ fun = function(seurat_obj, name) {
     saveMeta(savefnc=saveRDS, object= seurat_obj, file = paste0(dir_RObjects, prefix_data, "_", prefix_run, "_", name, "_seurat_obj.RDS.gz"), compress = "gzip")
     })
   }
-invisible(safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile))
+invisible(safeParallel(fun=fun, list_iterable=list_iterable, timeout = 1200, outfile=outfile))
 
 ######################################################################
 ######################### LOG SESSION ################################
