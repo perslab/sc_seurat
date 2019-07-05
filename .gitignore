@@ -4,3 +4,5 @@
 .Rproj.user
 packrat/lib*/
 diagnostics
+.Rhistory
+seurat_annotate_plot_export.Rmd
