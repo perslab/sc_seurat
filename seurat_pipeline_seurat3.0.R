@@ -1201,38 +1201,38 @@ list_seurat_obj <- mapply(FUN=fun, "seurat_obj"=list_iterable[[1]], "name" = lis
 #################################### PCA #############################
 ######################################################################
 
-if (!is.null(align_group_IDs) | !is.null(align_specify) | !is.null(merge_group_IDs) | !is.null(merge_specify)) {
-  message("Computing PCA")
-  fun =  function(seurat_obj, obj_name) {
+#if (!is.null(align_group_IDs) | !is.null(align_specify) | !is.null(merge_group_IDs) | !is.null(merge_specify)) {
+message("Computing PCA")
+fun =  function(seurat_obj, obj_name) {
+    tryCatch({
+      # precaution for numerical stability in case of very few variable features or cells
+      pcs.compute1 = min(n_comp, min(ncol(seurat_obj), length(VariableFeatures(object=seurat_obj)))%/%2)
+      seurat_obj<-RunPCA(object = seurat_obj, 
+             weight.by.var = F,
+             npcs = pcs.compute1, 
+             seed.use=randomSeed,
+             verbose=F)
+      # project to get loadings for all genes, not just variable
+      seurat_obj <- ProjectDim(object = seurat_obj)
+    },   error = function(err1) {
+      pcs.compute2=min(n_comp, min(ncol(seurat_obj), length(VariableFeatures(object=seurat_obj)))%/%3)
+      warning(paste0("RunPCA failed using ", pcs.compute1, " components with error ", err1, ", maybe due to cell count: ", ncol(seurat_obj), ". Trying with ", pcs.compute2, " components"))
       tryCatch({
-        # precaution for numerical stability in case of very few variable features or cells
-        pcs.compute1 = min(n_comp, min(ncol(seurat_obj), length(VariableFeatures(object=seurat_obj)))%/%2)
         seurat_obj<-RunPCA(object = seurat_obj, 
-               weight.by.var = F,
-               npcs = pcs.compute1, 
-               seed.use=randomSeed,
-               verbose=F)
-        # project to get loadings for all genes, not just variable
-        seurat_obj <- ProjectDim(object = seurat_obj)
-      },   error = function(err1) {
-        pcs.compute2=min(n_comp, min(ncol(seurat_obj), length(VariableFeatures(object=seurat_obj)))%/%3)
-        warning(paste0("RunPCA failed using ", pcs.compute1, " components with error ", err1, ", maybe due to cell count: ", ncol(seurat_obj), ". Trying with ", pcs.compute2, " components"))
-        tryCatch({
-          seurat_obj<-RunPCA(object = seurat_obj, 
-                         weight.by.var = F,
-                         npcs = pcs.compute2, 
-                         seed.use=randomSeed,
-                         verbose=F)
-          # project so we get loadings for all genes, not just variable 
-          ProjectDim(object = seurat_obj)
-        }, error = function(err2) {
-                           warning(paste0(obj_name, ": PCA failed again with ", pcs.compute2, " components with error: ", err2, ". Maybe due to cell count: ", ncol(seurat_obj), ". Returning seurat object without PCA"))
-                           seurat_obj})
-      })}
-  list_iterable = list("seurat_obj"=list_seurat_obj, "obj_name"=names(list_seurat_obj))
-  outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_PCA2.txt")
-  list_seurat_obj<- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile)
-}  
+                       weight.by.var = F,
+                       npcs = pcs.compute2, 
+                       seed.use=randomSeed,
+                       verbose=F)
+        # project so we get loadings for all genes, not just variable 
+        ProjectDim(object = seurat_obj)
+      }, error = function(err2) {
+                         warning(paste0(obj_name, ": PCA failed again with ", pcs.compute2, " components with error: ", err2, ". Maybe due to cell count: ", ncol(seurat_obj), ". Returning seurat object without PCA"))
+                         seurat_obj})
+    })}
+list_iterable = list("seurat_obj"=list_seurat_obj, "obj_name"=names(list_seurat_obj))
+outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_PCA2.txt")
+list_seurat_obj<- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile)
+#}  
 
 ######################################################################
 ############################ JACKSTRAW ###############################
@@ -1258,7 +1258,8 @@ if (use_jackstraw) {
                             #do.par = T,
                             verbose=T,
                             #num.cores = n_cores,
-                            prop.freq = prop.freq)
+                            prop.freq = prop.freq,
+                            maxit=2000)
 
     seurat_obj <- ScoreJackStraw(object=seurat_obj, reduction="pca", dims=1:pcs.compute, do.plot=F) # do we need to run JackStrawPlot to get the ggplot object?
     p <- JackStrawPlot(object=seurat_obj, dims=1:pcs.compute, reduction="pca")
@@ -1347,14 +1348,17 @@ if (!is.null(res_primary)) {
                      random.seed = randomSeed,
                      verbose=T,
                      resolution = res)}
-      list_iterable= list("X"=res_to_calc)
       
-      list_seurat_obj_res <- safeParallel(fun=fun, 
-                                           list_iterable=list_iterable, 
-                                           outfile=outfile, 
-                                           seurat_obj=seurat_obj,  
-                                           randomSeed=randomSeed,
-                                           timeout= 600)
+      #list_iterable= list("X"=res_to_calc)
+      
+      # list_seurat_obj_res <- safeParallel(fun=fun, 
+      #                                      list_iterable=list_iterable, 
+      #                                      outfile=outfile, 
+      #                                      seurat_obj=seurat_obj,  
+      #                                      randomSeed=randomSeed,
+      #                                      timeout= 600)
+      
+      list_seurat_obj_res <- lapply(X = res_to_calc,FUN = fun)
                                  
       # Save all the cluster assignments as meta data in the original seurat object
       for (i in seq(1:length(res_to_calc))) {
@@ -1922,8 +1926,3 @@ invisible(safeParallel(fun=fun, list_iterable=list_iterable, timeout = 1200, out
 
 setwd(dir_log)
 saveMeta(doPrint=T)
-
-######################################################################
-############################### WRAP UP ##############################
-######################################################################
-#save.image(file = paste0(dir_RObjects, prefix_data, "_", prefix_run,"_finalSessionImage.RData.gz"), compress="gzip")
