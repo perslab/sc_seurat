@@ -1288,36 +1288,38 @@ if (use_jackstraw) {
 ############################ T-SNE ###################################
 ######################################################################
 
-message("Computing t-SNE")
-
+#message("Computing t-SNE")
+message("Computing UMAP")
 fun =  function(seurat_obj, obj_name, PC_signif_idx) {
   
-  perplexity1 = min(30, min(n_comp,ncol(GetAssayData(object=seurat_obj)))%/%1.5)
-  tryCatch({
-    RunTSNE(object = seurat_obj, 
-                    tsne.method="Rtsne",
+  #perplexity1 = min(30, min(n_comp,ncol(GetAssayData(object=seurat_obj)))%/%1.5)
+  #tryCatch({
+    RunUMAP(object = seurat_obj, 
+                    #tsne.method="Rtsne",
                     reduction = "pca",#if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned", 
                     dims= (1:n_comp)[PC_signif_idx][1:min(30,sum(PC_signif_idx))], # no need to use all PCs for t-SNE
-                    seed.use = randomSeed,
+                    seed.use = randomSeed#,
                     #do.fast=T,
-                    perplexity=perplexity1,
-                    check_duplicates=F)
-  }, error = function(err1) {
-    perplexity2 = min(30, min(n_comp,ncol(GetAssayData(object=seurat_obj)))%/%2.5)
-    warning(paste0(obj_name, ": RunTSNE failed with error: ", err1, ", using perplexity ", perplexity1, ". Maybe due to cell count: ", dim(GetAssayData(object=seurat_obj))[2], ". Trying with perplexity ", perplexity2))
-    tryCatch({RunTSNE(object = seurat_obj, 
-                      reduction = "pca",#if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned", 
-                      dims= (1:n_comp)[PC_signif_idx][1:min(30,sum(PC_signif_idx))], # no need to use all PCs for t-SNE
-                      #do.fast=T,
-                      seed.use = randomSeed,
-                      perplexity = perplexity2,
-                      check_duplicates=F)
-    }, error= function(err2) {
-      warning(paste0("RunTSNE failed again with error ", err2, ", returning original seurat object"))
-      seurat_obj})
-    })
+                    #perplexity=perplexity1,
+                    #check_duplicates=F
+            )
+  # }, error = function(err1) {
+  #   perplexity2 = min(30, min(n_comp,ncol(GetAssayData(object=seurat_obj)))%/%2.5)
+  #   warning(paste0(obj_name, ": RunTSNE failed with error: ", err1, ", using perplexity ", perplexity1, ". Maybe due to cell count: ", dim(GetAssayData(object=seurat_obj))[2], ". Trying with perplexity ", perplexity2))
+  #   tryCatch({RunTSNE(object = seurat_obj, 
+  #                     reduction = "pca",#if (is.null(align_group_IDs) & is.null(align_specify)) "pca" else "cca.aligned", 
+  #                     dims= (1:n_comp)[PC_signif_idx][1:min(30,sum(PC_signif_idx))], # no need to use all PCs for t-SNE
+  #                     #do.fast=T,
+  #                     seed.use = randomSeed,
+  #                     perplexity = perplexity2,
+  #                     check_duplicates=F)
+  #   }, error= function(err2) {
+  #     warning(paste0("RunTSNE failed again with error ", err2, ", returning original seurat object"))
+  #     seurat_obj})
+  #  })
   }
-outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_TSNE2.txt")
+#outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_TSNE2.txt")
+outfile=paste0(dir_log,prefix_data,"_",prefix_run,"_UMAP2.txt")
 list_iterable=list("seurat_obj"=list_seurat_obj,
           "obj_name" = names(list_seurat_obj), 
           "PC_signif_idx" = list_PC_signif_idx)
@@ -1567,13 +1569,19 @@ if (!is.null(path_transferLabelsRef)) {
         
         perplexity1 = min(30, ncol(GetAssayData(object=seuratObjQuery))%/%1.5)
         
-        seuratObjQuery <- RunTSNE(object = seuratObjQuery, 
+        # seuratObjQuery <- RunTSNE(object = seuratObjQuery, 
+        #                           reduction = "pca", 
+        #                           dims = 1:min(n_comp, 30),#(1:n_comp)[PC_signif_idx][1:min(30,sum(PC_signif_idx))], # no need to use all PCs for t-SNE
+        #                           seed.use = randomSeed,
+        #                           check_duplicates=F,
+        #                           #do.fast=T,
+        #                           perplexity=perplexity1)
+        
+        seuratObjQuery <- RunUMAP(object = seuratObjQuery, 
                                   reduction = "pca", 
                                   dims = 1:min(n_comp, 30),#(1:n_comp)[PC_signif_idx][1:min(30,sum(PC_signif_idx))], # no need to use all PCs for t-SNE
-                                  seed.use = randomSeed,
-                                  check_duplicates=F,
-                                  #do.fast=T,
-                                  perplexity=perplexity1)
+                                  seed.use = randomSeed)
+        
         
         # Plot 
         p <- DimPlot(object=seuratObjQuery, 
@@ -1582,10 +1590,10 @@ if (!is.null(path_transferLabelsRef)) {
                       no.legend = F, 
                       group.by = "predicted.id",
                       plot.title = paste0(seuratObjName, " by transferred label")) # + xlab("t-SNE 1") + ylab("t-SNE 2"
-        saveMeta(savefnc=ggsave, plot=p, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", seuratObjName, "_tSNE_clust_transferlabel_preFilt.pdf"), w=12, h=12)
+        saveMeta(savefnc=ggsave, plot=p, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", seuratObjName, "_UMAP_clust_transferlabel_preFilt.pdf"), w=12, h=12)
         
         p <- FeaturePlot(object=seuratObjQuery, feature = "prediction.score.max")
-        saveMeta(savefnc=ggsave, plot=p, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", seuratObjName, "_transferlabel_predictionScore_preFilt.pdf"), w=12, h=12)
+        saveMeta(savefnc=ggsave, plot=p, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", seuratObjName, "_UMAP_transferlabel_predictionScore_preFilt.pdf"), w=12, h=12)
         
         ## Now remove the cells that didn't align well
         seuratObjRm <- subset(x= seuratObjQuery, 
@@ -1614,15 +1622,21 @@ if (!is.null(path_transferLabelsRef)) {
                                verbose=F,
                                seed.use = randomSeed)
         
-        perplexity1 = min(30, ncol(GetAssayData(object=seuratObjQuery))%/%1.5)
+        #perplexity1 = min(30, ncol(GetAssayData(object=seuratObjQuery))%/%1.5)
         
-        seuratObjQuery <- RunTSNE(object = seuratObjQuery, 
+         # seuratObjQuery <- RunTSNE(object = seuratObjQuery, 
+         #                          reduction = "pca", 
+         #                          dims = (1:n_comp)[PC_signif_idx][1:min(30,sum(PC_signif_idx))], # no need to use all PCs for t-SNE
+         #                          seed.use = randomSeed,
+         #                          check_duplicates=F,
+         #                          #do.fast=T,
+         #                          perplexity=perplexity1)
+        
+        seuratObjQuery <- RunUMAP(object = seuratObjQuery, 
                                   reduction = "pca", 
                                   dims = (1:n_comp)[PC_signif_idx][1:min(30,sum(PC_signif_idx))], # no need to use all PCs for t-SNE
-                                  seed.use = randomSeed,
-                                  check_duplicates=F,
-                                  #do.fast=T,
-                                  perplexity=perplexity1)
+                                  seed.use = randomSeed)
+        
       }
     }
     # TODO: check whether use of PC_signif_idx is appropriate here
@@ -1642,7 +1656,7 @@ if (!is.null(path_transferLabelsRef)) {
 message("Plotting t-SNE")
 invisible(mapply(function(seurat_obj, name) {
   p1 <- DimPlot(object=seurat_obj,  
-                reduction="tsne",
+                reduction="UMAP",
                 dims=c(1,2),
                 #do.return = T, 
                 label=F,
@@ -1650,7 +1664,7 @@ invisible(mapply(function(seurat_obj, name) {
                 group.by = "sample_ID", 
                 no.legend=F, 
                 plot.title=paste0(name, " by sample"))
-  saveMeta(savefnc=ggsave, plot=p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_tSNEPlot_sample.pdf"), w=10, h=10)
+  saveMeta(savefnc=ggsave, plot=p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_UMAP_sample.pdf"), w=10, h=10)
   
   if (!is.null(res_primary)) {
     p2 <- DimPlot(object=seurat_obj, 
@@ -1659,7 +1673,7 @@ invisible(mapply(function(seurat_obj, name) {
                   no.legend = F, 
                   group.by = paste0("RNA_snn_res.",res_primary),
                   plot.title = paste0(name, " by cluster")) # + xlab("t-SNE 1") + ylab("t-SNE 2"
-    saveMeta(savefnc=ggsave, plot=p2, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_tSNEPlot_clust.pdf"), w=10, h=10)
+    saveMeta(savefnc=ggsave, plot=p2, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_UMAP_clust.pdf"), w=10, h=10)
   }
   
   if (!is.null(seurat_obj@meta.data$predicted.id)) {
@@ -1669,14 +1683,13 @@ invisible(mapply(function(seurat_obj, name) {
                   no.legend = F, 
                   group.by = "predicted.id",
                   plot.title = paste0(name, " by transferred label")) # + xlab("t-SNE 1") + ylab("t-SNE 2"
-    saveMeta(savefnc=ggsave, plot=p3, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_tSNEPlot_clust_transferlabel.pdf"), w=12, h=12)
+    saveMeta(savefnc=ggsave, plot=p3, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_UMAP_clust_transferlabel.pdf"), w=12, h=12)
     
     p3 <- FeaturePlot(object=seurat_obj, feature = "prediction.score.max")
-    saveMeta(savefnc=ggsave, plot=p3, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_featurePlot_clust_transferlabel_predictionScore.pdf"), w=12, h=12)
+    saveMeta(savefnc=ggsave, plot=p3, filename =  paste0(dir_plots, prefix_data, "_", prefix_run, "_UMAP_clust_transferlabel_predictionScore.pdf"), w=12, h=12)
     
   }
-  # p1 <- TSNEPlot(seurat_obj, do.return = T, pt.size = 1, group.by = "condition", no.legend=F, plot.title=paste0(name, " by condition"))
-  # ggsave(p1, filename =  paste0(dir_plots, prefix_data,"_",prefix_run, "_", name, "_tSNEPlot_condition.pdf"), w=10, h=10)
+
   
 }, seurat_obj = list_seurat_obj,
 name = names(list_seurat_obj),
