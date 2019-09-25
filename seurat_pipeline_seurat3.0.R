@@ -55,6 +55,8 @@ option_list <- list(
               help = "Run the data through SoupX?, [default %default]"),
   make_option("--SoupX_genes", type="character", default = NULL,
               help = "If using SoupX to filter out ambient RNA, optionally provide a custom set of genes for each sample. Takes a quoted list of vectors of gene names, each vector named by sample. Alternatively, a single vector to use for all samples. [default %default]"),
+  make_option("--min.cells", type="integer", default = 10L,
+              help = "Minimum number of cells needed to keep a gene [default %default]"),
   make_option("--nFeature_RNA_min", type="integer", default = 500L,
               help = "Minimum number of genes needed to keep a cell [default %default]"),
   make_option("--nFeature_RNA_max", type="integer", default = 10000L,
@@ -96,9 +98,9 @@ option_list <- list(
   make_option("--feats_plot_separate", type="logical", default = T,
               help = "Plot features separately or in one plot? If FALSE, only the first two features will be plotted [default %default]"),
   make_option("--RAM_Gb_max", type="integer", default=200,
-              help = "Upper limit on Gb RAM available. Taken into account when setting up parallel processes. [default %default]")
-  # make_option("--path_runLog", type="character", default=NULL,
-  #             help = "Path to file to log the run and the git commit. If left as NULL, write to a file called runLog.text in the dir_log [default %default]")
+              help = "Upper limit on Gb RAM available. Taken into account when setting up parallel processes. [default %default]"),
+  make_option("--doSaveImage", type="logical", default=TRUE,
+               help = "Save the session image to disk at the end of the script? [default %default]")
 )
 
 ######################################################################
@@ -141,6 +143,7 @@ LocationOfThisScript = function() # Function LocationOfThisScript returns the lo
 dir_current = LocationOfThisScript()
 #dir_current = getwd()
 
+#setwd(dir_current)
 ######################################################################
 ######################### UTILITY FUNCTIONS ##########################
 ######################################################################
@@ -172,6 +175,7 @@ paths_cellCycleGenes <- opt$paths_cellCycleGenes ; if (!is.null(paths_cellCycleG
 n_cells_loaded <- opt$n_cells_loaded ; if (!is.null(n_cells_loaded)) n_cells_loaded <- eval(parse(text=n_cells_loaded))
 n_cells_recovered <- opt$n_cells_recovered ; if (!is.null(n_cells_recovered)) n_cells_recovered <- eval(parse(text=n_cells_recovered))
 use_filtered_feature_bc_matrix = opt$use_filtered_feature_bc_matrix 
+min.cells = opt$min.cells
 nFeature_RNA_min = opt$nFeature_RNA_min
 nFeature_RNA_max = opt$nFeature_RNA_max
 nCount_RNA_min = opt$nCount_RNA_min
@@ -200,6 +204,7 @@ feats_to_plot <- opt$feats_to_plot ; if (!is.null(feats_to_plot)) feats_to_plot 
 feats_plot_separate <- opt$feats_plot_separate
 #n_cores <- opt$n_cores
 RAM_Gb_max <- opt$RAM_Gb_max
+doSaveImage <- opt$doSaveImage
 #path_runLog <- opt$path_runLog
 
 ######################################################################
@@ -662,7 +667,7 @@ fun = function(data_tmp, sample_ID, n_cells) {
     
     seurat_obj <- CreateSeuratObject(counts = data_tmp, 
                                      project = paste0(prefix_data, "_", prefix_run), 
-                                     #min.cells = -Inf, 
+                                     min.cells = min.cells, 
                                      min.features = -Inf, 
                                      #normalization.method = "LogNormalize", 
                                      #scale.factor = 1e4, 
@@ -1136,8 +1141,8 @@ if (!is.null(paths_cellCycleGenes)) {
   fun = function(seurat_obj, name) {
     tryCatch({
       seurat_obj <- CellCycleScoring(object = seurat_obj, 
-                                     s.genes = if (!is.null(list_cellCycleGenes[["s.genes"]])) list_cellCycleGenes[["s.genes"]] else NULL, 
-                                     g2m.genes = if (!is.null(list_cellCycleGenes[["g2m.genes"]])) list_cellCycleGenes[["g2m.genes"]] else NULL, 
+                                     s.features = if (!is.null(list_cellCycleGenes[["s.genes"]])) list_cellCycleGenes[["s.genes"]] else NULL, 
+                                     g2m.features = if (!is.null(list_cellCycleGenes[["g2m.genes"]])) list_cellCycleGenes[["g2m.genes"]] else NULL, 
                                      set.ident = F)
       
       if (!is.null(list_cellCycleGenes[["s.genes"]]) & is.null(list_cellCycleGenes[["g2m.genes"]])) {
@@ -1155,16 +1160,16 @@ if (!is.null(paths_cellCycleGenes)) {
   outfile=paste0(dir_log, prefix_data, "_", prefix_run, "_log_CellCycleScoring.txt")
   list_seurat_obj <- safeParallel(fun=fun, list_iterable=list_iterable, timeout=1200, outfile=outfile)
   
-  # Visualize the distribution of cell cycle markers 
+  # Visualize the distribution of a few cell cycle markers 
   invisible(sapply(function(seurat_obj,name) {
     try({
       
       features.plot <- c(if (!is.null(list_cellCycleGenes[["s.genes"]])) list_cellCycleGenes[["s.genes"]][1:min(3, length(list_cellCycleGenes[["s.genes"]]))] else NULL, 
                          if (!is.null(list_cellCycleGenes[["g2m.genes"]])) list_cellCycleGenes[["g2m.genes"]][1:min(3, length(list_cellCycleGenes[["g2m.genes"]]))] else NULL) 
       
-      p<-RidgePlot(object = marrow, 
-              features.plot = features.plot,
-              nCol = min(1,length(features.plot)%/%2))
+      p<-RidgePlot(object = seurat_obj_new, 
+        features = features.plot)#
+        #cols = min(1,length(features.plot)%/%2))
       
       saveMeta(savefnc=ggsave, plot=p,filename = paste0(dir_plots, prefix_data, "_", prefix_run, "_", name, "_cellcycle_RidgePlot.pdf"), width=15, height=10)
     
@@ -1239,6 +1244,8 @@ list_seurat_obj<- safeParallel(fun=fun, list_iterable=list_iterable, outfile=out
 #####################################################################
 
 # TODO: what random seed does JackStraw() use? the system seed?
+# NB: JackStraw can generate errors as a function of the number of PCs 
+# (and perhaps the random seed?). More PCs -> error
 
 if (use_jackstraw) {
   message("Using Jackstraw resampling to determine significant principal components")
@@ -1417,10 +1424,10 @@ if (!is.null(path_transferLabelsRef)) {
     # Compute and add percent mito and percent ribo as metadata
     mito.genes <- grepl(pattern = "^mt-", x = rownames(seuratObjRef), ignore.case=T)
     ribo.genes <- grepl(pattern = "^Rp[sl][[:digit:]]", x = rownames(seuratObjRef), ignore.case=T)
-    colSums_tmp <- colSums(x = seuratObjRef@assays$RNA@counts)
+    colSums_tmp <- colSums(x = as.matrix(seuratObjRef@assays$RNA@counts))
     
-    metadata <- data.frame(percent.mito=colSums(x = seuratObjRef@assays$RNA@counts[mito.genes,])/colSums_tmp, 
-                           percent.ribo = colSums(x = seuratObjRef@assays$RNA@counts[ribo.genes,])/colSums_tmp, 
+    metadata <- data.frame(percent.mito=colSums(x = as.matrix(seuratObjRef@assays$RNA@counts)[mito.genes,])/colSums_tmp, 
+                           percent.ribo = colSums(x = as.matrix(seuratObjRef@assays$RNA@counts)[ribo.genes,])/colSums_tmp, 
                            rownames=colnames(seuratObjRef))
     
     seuratObjRef <- AddMetaData(object=seuratObjRef, metadata=metadata)
@@ -1898,12 +1905,17 @@ if (!is.null(res_primary)) {
   message("Writing out gene markers")
 
   tryCatch({
+    # invisible(mapply(function(markers,name) saveMeta(savefnc=openxlsx::write.xlsx, 
+    #                                                  x=markers, 
+    #                                                  file=paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.csv")), 
+    #                  markers=list_markers, 
+    #                  name=names(list_seurat_obj), SIMPLIFY=F))
     saveMeta(savefnc=openxlsx::write.xlsx, x = list_markers,
-                          file = paste0(dir_tables, prefix_data, "_", prefix_run, "_markers.xlsx"))
+                         file = paste0(dir_tables, prefix_data, "_", prefix_run, "_markers.xlsx"))
     }, error =function(err){ 
       message(paste0("openxlsx::write.xlsx failed with error", err))
-      invisible(mapply(function(markers,name) saveMeta(savefnc=write.csv, x=markers, file=paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.csv"), quote = F, row.names=T), markes=list_markers, name=names(list_seurat_obj), SIMPLIFY=F))
-
+      invisible(mapply(function(markers,name) saveMeta(savefnc=write.csv, x=markers, file=paste0(dir_tables, prefix_data, "_", prefix_run, "_", name, "_markers.csv"), quote = F, row.names=T), markers=list_markers, name=names(list_seurat_obj), SIMPLIFY=F))
+      
     })
   
 }
@@ -1926,3 +1938,5 @@ invisible(safeParallel(fun=fun, list_iterable=list_iterable, timeout = 1200, out
 
 setwd(dir_log)
 saveMeta(doPrint=T)
+
+if (doSaveImage) saveMeta(savefnc = save.image, doPrint = F, file = paste0(dir_scratch, prefix_data, "_", prefix_run, "_sessionImage.RData.gz"), compress="gzip")
