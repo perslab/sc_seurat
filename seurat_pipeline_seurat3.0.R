@@ -154,8 +154,18 @@ source(file=paste0(dir_current, "/perslab-sc-library/functions_sc.R"))
 ######################################################################
 ########################### PACKAGES #################################
 ######################################################################
+suppressPackageStartupMessages(library("devtools"))
+suppressPackageStartupMessages(library("optparse"))
+suppressPackageStartupMessages(library("Matrix"))
+suppressPackageStartupMessages(library("Matrix.utils"))
+suppressPackageStartupMessages(library("tidyverse"))
+suppressPackageStartupMessages(library("Seurat"))
+suppressPackageStartupMessages(library("scales"))
+suppressPackageStartupMessages(library("parallel"))
+suppressPackageStartupMessages(library("cowplot"))
 
-ipak(c("devtools", "optparse", "Matrix", "Matrix.utils", "Seurat", "ggplot2", "scales", "dplyr", "parallel", "reshape", "reshape2", "cowplot"))#, "pSI", "loomR", "doubletFinder")
+
+#ipak(c("devtools", "optparse", "Matrix", "Matrix.utils", "Seurat", "ggplot2", "scales", "dplyr", "parallel", "reshape", "reshape2", "cowplot"))#, "pSI", "loomR", "doubletFinder")
 
 ######################################################################
 ########################### GET OPTIONS ##############################
@@ -595,7 +605,8 @@ if (run_SoupX) {
       
     outfile = paste0(dir_log, prefix_data,"_",prefix_run,"_SoupXAdjustcounts.txt")
     list_iterable=list("data_tmp"=list_data_tmp, "sample_ID" = sample_IDs, topgenes = list_topgenes)
-    list_data_tmp <- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile, scl=scl) 
+    list_data_tmp <- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile)#, 
+                                  #scl=scl) 
   }
 } else if (!use_filtered_feature_bc_matrix){
   fun = function(data_tmp, cellIdx) {
@@ -792,7 +803,9 @@ if (rm_sc_multiplets) {
   
   # NormalizeData
   outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_NormalizeData_wFakeDoub.txt")    
-  list_seurat_obj_wfakeDoub <- safeParallel(fun=Seurat::NormalizeData, list_iterable=list("X"=list_seurat_obj_wfakeDoub), outfile=outfile)
+  list_seurat_obj_wfakeDoub <- safeParallel(fun=Seurat::NormalizeData, 
+                                            list_iterable=list("X"=list_seurat_obj_wfakeDoub), 
+                                            outfile=outfile)
   
   # FindVariableFeatures
   fun = function(seurat_obj) tryCatch({
@@ -806,7 +819,9 @@ if (rm_sc_multiplets) {
                          selection.method="mean.var.plot",verbose=T)
   })
   outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_FindVariableFeatures_wFakeDoub.txt")    
-  list_seurat_obj_wfakeDoub <- safeParallel(fun=fun, list_iterable=list("seurat_obj"=list_seurat_obj_wfakeDoub), outfile=outfile)#,
+  list_seurat_obj_wfakeDoub <- safeParallel(fun=fun, 
+                                            list_iterable=list("seurat_obj"=list_seurat_obj_wfakeDoub), 
+                                            outfile=outfile)#,
 
   # ScaleData
   list_seurat_obj_wfakeDoub <- lapply(X=list_seurat_obj_wfakeDoub, 
@@ -835,7 +850,8 @@ if (rm_sc_multiplets) {
                      npcs = pcs.compute2,
                      verbose=F)})}
   outfile=paste0(dir_log, prefix_data,"_",prefix_run,"_PCA_wFakeDoub.txt")     
-  list_seurat_obj_wfakeDoub <- safeParallel(fun=fun, list_iterable=list("X"=list_seurat_obj_wfakeDoub), outfile=outfile)
+  list_seurat_obj_wfakeDoub <- safeParallel(fun=fun, list_iterable=list("X"=list_seurat_obj_wfakeDoub), 
+                                            outfile=outfile)
   
   # Find make cell-cell distance matrix, find nearest neighbours, predict whether cells are doublets or singlets
   fun <- function(seu, seu_wdoublets, real.cells) {
@@ -1396,7 +1412,7 @@ if (!is.null(res_primary)) {
 
       }
     list_iterable = list("seurat_obj"=list_seurat_obj, "PC_signif_idx"=list_PC_signif_idx)
-    list_seurat_obj <- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile, res_primary=res_primary, randomSeed=randomSeed)
+    list_seurat_obj <- safeParallel(fun=fun, list_iterable=list_iterable, outfile=outfile)#, res_primary=res_primary, randomSeed=randomSeed)
   }
 }
 
@@ -1827,11 +1843,11 @@ if (run_SoupX) {
                   "gene"=topgenes)
       
       safeParallel(fun=fun, 
-                   list_iterable=list_iterable, 
-                   dir_plots=dir_plots, 
-                   prefix_data=prefix_data, 
-                   prefix_run=prefix_run, 
-                   sample_ID=sample_ID)
+                   list_iterable=list_iterable)#, 
+                   #dir_plots=dir_plots, 
+                   #prefix_data=prefix_data, 
+                   #prefix_run=prefix_run, 
+                   #sample_ID=sample_ID)
       
       rm(topgenes)
       file.remove(topgenes_path)
