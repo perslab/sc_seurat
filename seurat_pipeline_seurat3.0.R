@@ -29,6 +29,8 @@ option_list <- list(
               help = "Path(s) to single counts data matrix stored in standard (gz compressed) delimited text format, Seurat 3.0 or loom. Takes a vector, in single (double) quotes, of characters, in double (single) quotes, without whitespace, e.g. ''c('<path1>','<path2>')'',  [default %default]"),  
   make_option("--dir_out", type="character",
               help = "Project directory to which to write files. Should include subdirectories /tables, /RObjects, /plots, /log"),  
+  make_option("--dir_scratch", type="character",
+              help = "directory for tmp files"),  
   make_option("--flag_datatype", type="character", default = "sc",
               help = "Accepts arguments sc or bulk, [default %default]"), 
   make_option("--flag_organism", type="character", default = "mmusculus",
@@ -173,6 +175,7 @@ opt <- parse_args(OptionParser(option_list=option_list))
 dirs_project_10x <- opt$dirs_project_10x ; if (!is.null(dirs_project_10x)) dirs_project_10x <- eval(parse(text=dirs_project_10x))
 paths_data <- opt$paths_data ; if (!is.null(paths_data)) paths_data <- eval(parse(text=paths_data))
 dir_out <- opt$dir_out
+dir_scratch <- opt$dir_scratch
 flag_datatype <- opt$flag_datatype
 flag_organism <- opt$flag_organism
 prefix_data <- opt$prefix_data
@@ -259,8 +262,6 @@ if (!file.exists(dir_RObjects)) dir.create(dir_RObjects)
 
 dir_log = paste0(dir_out,"log/")
 if (!file.exists(dir_log)) dir.create(dir_log)
-
-dir_scratch = "/scratch/tmp-seurat/"
 
 #dir_current <- "/projects/jonatan/tools/seurat-src/"
 
