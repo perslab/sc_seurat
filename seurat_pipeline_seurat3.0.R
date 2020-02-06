@@ -164,9 +164,6 @@ suppressPackageStartupMessages(library("scales"))
 suppressPackageStartupMessages(library("parallel"))
 suppressPackageStartupMessages(library("cowplot"))
 
-
-#ipak(c("devtools", "optparse", "Matrix", "Matrix.utils", "Seurat", "ggplot2", "scales", "dplyr", "parallel", "reshape", "reshape2", "cowplot"))#, "pSI", "loomR", "doubletFinder")
-
 ######################################################################
 ########################### GET OPTIONS ##############################
 ######################################################################
@@ -222,7 +219,7 @@ doSaveImage <- opt$doSaveImage
 ######################################################################
 
 #if (!is.null(res_primary)) ipak(c("xlsx"))
-if (!is.null(res_primary)) ipak(c("openxlsx"))
+if (!is.null(res_primary)) library("openxlsx")
 
 if (run_SoupX) {
   devtools::install_github(repo="constantAmateur/SoupX", dependencies=NA, upgrade = "never")
@@ -254,10 +251,10 @@ if (!file.exists(dir_out)) {
 dir_plots = paste0(dir_out,"plots/")
 if (!file.exists(dir_plots)) dir.create(dir_plots) 
 
-dir_tables = paste0(dir_out,"tables/")
+dir_tables = paste0(dir_out,"output/")
 if (!file.exists(dir_tables)) dir.create(dir_tables)
 
-dir_RObjects = paste0(dir_out,"RObjects/")
+dir_RObjects = paste0(dir_out,"output/")
 if (!file.exists(dir_RObjects)) dir.create(dir_RObjects)
 
 dir_log = paste0(dir_out,"log/")
@@ -1669,10 +1666,10 @@ if (!is.null(path_transferLabelsRef)) {
 ########################## T-SNE PLOTS ################################
 #######################################################################
 
-message("Plotting t-SNE")
+message("Plotting UMAP")
 invisible(mapply(function(seurat_obj, name) {
   p1 <- DimPlot(object=seurat_obj,  
-                reduction="UMAP",
+                reduction="umap",
                 dims=c(1,2),
                 #do.return = T, 
                 label=F,
